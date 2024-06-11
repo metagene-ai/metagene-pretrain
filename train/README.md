@@ -7,9 +7,8 @@ Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the L
 
 ## Quick Tour
 
-- Tokenize
-    - [`tokenizer.py`](litgpt/tokenizer.py): incorporate sequence tokenizer.
 - Data
+    - [`download.py`](download.py): download data files from S3 bucket.
     - [`base.py`](litgpt/data/base.py): containing dataset class, NAODataset.
     - [`nao.py`](litgpt/data/nao.py): containing NAO (DataModule) class, with
       train/val dataloaders.
@@ -17,6 +16,8 @@ Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the L
     - [`genomicsllama.yml`](config_hub/pretrain/genomicsllama.yml): pretrain
       configuration for genomics-llama.
     - [`config`](litgpt/config.py): model configuration for genomics_llama.
+- Tokenize
+    - [`tokenizer.py`](litgpt/tokenizer.py): incorporate sequence tokenizer.
 - Train
     - [`pretrain.py`](litgpt/pretrain.py): pretraining model, e.g., initialize
       weights, setup optimizers, setup dataloaders, setup fabric, run training.

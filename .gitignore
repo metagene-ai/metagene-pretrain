@@ -1,0 +1,25 @@
+# Vim
+*.sw*
+
+# Mac
+*.DS_Store
+
+# Python
+*pylintrc*
+*.pkl
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints
+*.pyc
+venv/
+venv-*
+venv_*
+
+# C extensions
+*.so
+
+# Misc
+*hide
+*hide_*
+*.out

@@ -11,15 +11,14 @@ monitoring.
 
 ## Quick Tour
 
-- [`tokenize`](tokenize/): byte-pair encoding (BPE) tokenization of genomic data.
+- [`tokenize/`](tokenize/): byte-pair encoding (BPE) tokenization of genomic data.
     - [`gather_data.py`](tokenize/gather_data.py): uniformly sample sequence reads for
       BPE tokenization.
     - [`run.py`](tokenize/run.py): run BPE tokenization on sampled sequence reads.
 <br/><br/>
-- [`train`](train/): training of the metagenomic foundation model (MGFM).
-    - Tokenize
-        - [`tokenizer.py`](train/litgpt/tokenizer.py): incorporate sequence tokenizer.
+- [`train/`](train/): training of the metagenomic foundation model (MGFM).
     - Data
+        - [`download.py`](train/download.py): download data files from S3 bucket.
         - [`base.py`](train/litgpt/data/base.py): containing dataset class, NAODataset.
         - [`nao.py`](train/litgpt/data/nao.py): containing NAO (DataModule) class, with
           train/val dataloaders.
@@ -27,6 +26,8 @@ monitoring.
         - [`genomicsllama.yml`](train/config_hub/pretrain/genomicsllama.yml): pretrain
           configuration for genomics-llama.
         - [`config`](train/litgpt/config.py): model configuration for genomics_llama.
+    - Tokenize
+        - [`tokenizer.py`](train/litgpt/tokenizer.py): incorporate sequence tokenizer.
     - Train
         - [`pretrain.py`](train/litgpt/pretrain.py): pretraining model, e.g., initialize
           weights, setup optimizers, setup dataloaders, setup fabric, run training.
