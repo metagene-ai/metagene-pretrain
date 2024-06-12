@@ -22,7 +22,8 @@ locations.
 - Ran evaluation on perplexity of held-out data, and on human-infecting virus subset.
 - Did small study on overfitting on multiple epochs through a chunk of the data.
 - Explored other tokenization schemes (k-mer, codons, BPE, etc).
-- Trained a byte-pair encoding (BPE) tokenizer on uniformly sampled reads from full data.
+- Trained a byte-pair encoding (BPE) tokenizer on uniformly sampled reads from full data
+  (see [details](#byte-pair-encoding-bpe-tokenization)).
 - Trained an 800M parameter model on a small subset of data using BPE tokenization.
 
 **Next Steps**: Finish final BPE tokenizer. Tokenize all/portion of data. Train 7B
@@ -89,9 +90,11 @@ Sequence read data files and approximate numbers of base pairs are listed below 
     MJ-2024-05-17-44_Torpedo_4-9_S6_L003.collapsed.gz, 37453956571
 ```
 
-## Byte-pair encoding (BPE) Tokenization
+## Byte-pair Encoding (BPE) Tokenization
 
-Some examples from our vocabulary (e.g., size 4096) are listed below.
+We trained a BPE tokenizer on ~150M sequence reads sampled uniformly at random from our
+full set of data files.  Some examples from our vocabulary (e.g., size 4096) are listed
+below.
 
 A few short tokens:
 ```
