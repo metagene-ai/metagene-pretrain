@@ -1,127 +1,108 @@
-import os, time
-import numpy as np
-from tqdm import tqdm
+# %%
+import os
+import gzip
+import time
 from random import shuffle
 
+PREFIX = f"{os.environ['HOME']}/temp"
+BUDGET = 2_000_000_000
+FILES = ["jr.csv", "mj.csv"]
 
-PREFIX = "/home/oliver/temp/"
-BUDGET = 150_000_000
 
-def main(args):
-    files = ["jr.csv", "mj.csv"]
-    stat_dict = {"jr": {}, "mj": {}}
-
-    for file in files:
-        source = file.split(".")[0]
-        prefix = None
-        with open(f'metadata/{file}', "r") as f:
+def prepare_state_dict():
+    stat_dict = {}
+    for file in FILES:
+        with open(f"metadata/{file}", "r") as f:
             for line in f:
                 if line.strip().endswith("cleaned/"):
                     prefix = line.strip().split()[-1]
                 if line.strip().endswith("collapsed.gz"):
                     line_split = line.strip().split()
-                    stat_dict[source][f"{prefix}{line_split[-1]}"] = int(line_split[-2])
+                    stat_dict[f"{prefix}{line_split[-1]}"] = int(line_split[-2])
 
-    total = 0
-    _stat_dict = {}
-    for source, source_dict in stat_dict.items():
-        for key, value in source_dict.items():
-            if value <= args.limit:
-                total += value
-                _stat_dict[key] = value
-    # total = sum(sum(stat_dict[source].values()) for source in ["jr", "mj"])
+    total_file_size = sum(stat_dict.values())
+    for key in stat_dict:
+        stat_dict[key] = (
+            stat_dict[key],  # file size (in bytes)
+            int(
+                stat_dict[key] / total_file_size * BUDGET
+            ),  # number of tokens to be sampled
+        )
+    return stat_dict
 
-    # for source, source_dict in stat_dict.items():
-    #     for key, value in source_dict.items():
-    #         source_dict[key] = [value, int(BUDGET * value / total)]
 
-    stat_dict = _stat_dict
-    for key, value in stat_dict.items():
-        stat_dict[key] = [value, int(BUDGET * value / total)]
-    
-    print('Total size:', total, 'Total files: ', len(stat_dict))
-
-    # pbar = tqdm(total=len(stat_dict["jr"]) + len(stat_dict["mj"]))
-    pbar = tqdm(total=len(stat_dict))
-    done_runs = []
-    # create if not exists
-    if not os.path.exists(f"{PREFIX}done_runs.txt"):
-        with open(f"{PREFIX}done_runs.txt", "w") as f:
-            pass
-    
-    with open(f"{PREFIX}done_runs.txt", "r") as f:
+def gather_token_count_by_line(fname):
+    counts = []
+    with gzip.open(fname, "rt") as f:
+        i = 0
         for line in f:
-            done_runs.append(line.strip())
+            if line[0] not in ["A", "C", "G", "T"]:
+                continue
+            counts.append((i, len(line.strip())))
+            i += 1
+    return counts
 
-    for key in sorted(stat_dict.keys()):
-        value = stat_dict[key]
-        pbar.set_description(f"Processing {key}; {value[1]} tokens")
-        fname = key.split("/")[-1].split(".gz")[0]
-        if fname in done_runs:
-            pbar.update(1)
-            print(f"Skipping {fname}")
-            continue
-        if not os.path.exists(f"{PREFIX}{fname}-shuffled"):
-            # use aws s3 cp to copy files
-            start = time.time()
-            if not os.path.exists(f"{PREFIX}{fname}.gz"):
-                os.system(f"aws s3 cp s3://{key} {PREFIX}")
-            print(f"Downloading {fname} took {time.time() - start:.2f} seconds")
-            # decompress .gz files
-            start = time.time()
-            if not os.path.exists(f"{PREFIX}{fname}"):
-                os.system(f"gunzip {PREFIX}{fname}.gz")
-            print(f"Decompressing {fname} took {time.time() - start:.2f} seconds")
 
-            start = time.time()
-            if not os.path.exists(f"{PREFIX}{fname}-cleaned"):
-                lines = []
-                with open(f"{PREFIX}{fname}", "r") as fin, open(f"{PREFIX}{fname}-cleaned", "w") as fout:
-                    ct = 0
-                    line = fin.readline()
-                    while line:
-                        if line[0] in ["A", "C", "G", "T"]:
-                            ct += 1
-                            fout.write(line)
-                            lines.append(line)
-                        line = fin.readline()
-                
-            else:
-                lines = open(f"{PREFIX}{fname}-cleaned", "r").readlines()
-            print(f"Cleaning {fname} took {time.time() - start:.2f} seconds")
-            os.system(f"rm {PREFIX}{fname}")  
-            # shuffle file
-            start = time.time()
-            shuffle(lines)
-            print(f"Shuffling {fname} took {time.time() - start:.2f} seconds")
-            os.system(f"rm {PREFIX}{fname}-cleaned")
-            with open(f"{PREFIX}{fname}-shuffled", "w") as f:
-                f.writelines(lines)
-        else:
-            print(f"Skipping {fname}-shuffled")
-        
-        # sample value[1] tokens
-        fout = open(f"{PREFIX}final.txt", "a")
-        subpbar = tqdm(total=value[1])
-        with open(f"{PREFIX}{fname}-shuffled", "r") as fin, open(f"{PREFIX}final.txt", "a") as fout:
-            line = fin.readline()
-            added_tokens = 0
-            while line:
-                if added_tokens + len(line.strip()) > value[1]:
-                    break
+def determine_sample_size(counts, budget):
+    total_so_far = 0
+    for i in range(len(counts)):
+        total_so_far += counts[i][1]
+        if total_so_far > budget:
+            return i
+
+
+def sample_tokens(fname, counts, fout):
+    sampled_index, _ = counts.pop(0)
+    with gzip.open(fname, "rt") as f:
+        i = 0
+        for line in f:
+            if line[0] not in ["A", "C", "G", "T"]:
+                continue
+            if i == sampled_index:
                 fout.write(line)
-                added_tokens += len(line.strip())
-                subpbar.update(len(line.strip()))                
-                line = fin.readline()
-        with open(f"{PREFIX}done_runs.txt", "a") as f:
-            f.write(f"{fname}\n")
-        os.system(f"rm {PREFIX}{fname}-shuffled")
-        pbar.update(1)
+                if counts:
+                    sampled_index, _ = counts.pop(0)
+                else:
+                    break
+            i += 1
+
+
+def main(out_folder="data"):
+    out_progress = f"{out_folder}/progress_{BUDGET}.txt"
+    out_fname = f"{out_folder}/sampled_tokens_{BUDGET}.txt"
+    stat_dict = prepare_state_dict()
+
+    current_progress = []
+    if os.path.exists(out_progress):
+        with open(out_progress, "r") as f:
+            for line in f:
+                current_progress.append(line.split(',')[0].strip())
+
+    fout = open(out_fname, "a")
+    for key, (_, file_budget) in sorted(stat_dict.items(), key=lambda x: x[1][0]):
+        if key in current_progress:
+            print('Skipping', key)
+            continue
+        local_path = f"{PREFIX}/{os.path.basename(key)}"
+        if os.path.exists(local_path):
+            pass
+        else:
+            os.system(f"aws s3 cp s3://{key} {PREFIX}")
+        counts = gather_token_count_by_line(f"{PREFIX}/{os.path.basename(key)}")
+        shuffle(counts)
+
+        sample_size = determine_sample_size(counts, file_budget)
+
+        counts = counts[:sample_size]
+        counts.sort()
+
+        sample_tokens(f"{PREFIX}/{os.path.basename(key)}", counts, fout)
+        fout.flush()
+
+        with open(out_progress, "a") as f:
+            f.write(f"{key}, {sample_size}\n")
+        os.remove(local_path)
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--limit', type=int, default=5e9)
-    args = parser.parse_args()
-    main(args)
+    main()

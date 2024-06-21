@@ -63,39 +63,25 @@
 def prepare_train_string(budget_per_file):
     # files = ['data/MJ-small.txt', 'data/JR-small.txt']
 
-    files = ['/home/oliver/temp/final.txt']
-    budget_per_file = 160_000_000
+    files = ['data/cleaned_tokens_2000000000.txt']
+    budget_per_file = 1_000_000_000
+    # budget_per_file = 100_000_000
 
     train_string = []
-    # added = set()
-    # duplicates = 0
     for file in files:
         from tqdm import tqdm
         pbar = tqdm(total=budget_per_file)
         
         with open(file, 'r') as f:
             file_train_string = [line.strip() for line in f.readlines()]
-            # line = f.readline()
-            # while line:
-            #     # if line.strip() in added:
-            #     #     line = f.readline()
-            #     #     duplicates += 1
-            #     #     continue
-            #     if len(file_train_string) + len(line.strip()) < budget_per_file:
-            #         file_train_string += line.strip()
-            #         pbar.update(len(line.strip()))
-            #         # added.add(line.strip())
-            #     else:
-            #         break
-            #     line = f.readline()
         train_string += file_train_string
-    train_string = ' '.join(train_string)
+    train_string = ' '.join(train_string)[:budget_per_file]
+    train_string = train_string[:train_string.rfind(' ')]
     print(f'Token count: {len(train_string):_}')
     # print(f'Found {duplicates} duplicates')
     return train_string
 
-train_string = prepare_train_string(160_000_000)
-# train_string = prepare_train_string(6e7)
+train_string = prepare_train_string(2_500_000_000)
 
 # %%
 from minbpe import RegexTokenizer
@@ -104,4 +90,4 @@ GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}
 tokenizer = RegexTokenizer(GPT2_SPLIT_PATTERN)
 tokenizer.train(train_string, vocab_size=1024, verbose=True)
 tokenizer.register_special_tokens({"<|eos|>": 1024})
-tokenizer.save('tokenizer/mgfm-1024')
+tokenizer.save('tokenizer/large-mgfm-1024')
