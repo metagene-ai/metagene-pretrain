@@ -34,6 +34,7 @@ from litgpt.utils import (
     save_config,
     save_hyperparameters,
 )
+from litgpt.utils_metrics import ActivationNormMetric
 
 # Sanity check code
 # TODO: eventually remove this
@@ -249,6 +250,7 @@ def fit(
     tokens_per_iter = train.micro_batch_size * model.max_seq_length
     max_iters = max_tokens_per_device // tokens_per_iter
     log_iter_interval = train.log_interval * train.gradient_accumulation_iters(devices)
+    log_activation_interval = train.log_activation_interval * train.gradient_accumulation_iters(devices) if train.log_activation_interval else None
     initial_iter = state["iter_num"]
     train_iterator = CycleIterator(train_dataloader)
 
@@ -270,6 +272,12 @@ def fit(
             param_group["lr"] = lr
 
         state["iter_num"] += 1
+
+        logging_activation = train.log_activation_interval is not None and state["iter_num"] % log_activation_interval == 0
+        if logging_activation:
+            activation_monitor = ActivationNormMetric(target_layers=["self_attn", "lm_head"])
+            activation_monitor.register_metrics_hooks(model)
+
         iter_t0 = time.perf_counter()
         if isinstance(train_data, dict):
             _, T = train_data["input_ids"].shape
@@ -292,6 +300,9 @@ def fit(
             optimizer.step()
             optimizer.zero_grad()
             state["step_count"] += 1
+
+            if logging_activation:
+                activation_monitor.remove_hooks()
 
         if state["iter_num"] % log_iter_interval == 0:
             loss = running_loss.compute().item()  # expensive device-to-host synchronization
@@ -330,6 +341,8 @@ def fit(
 
             throughput_metrics = throughput.compute()
             metrics.update(throughput_metrics)
+            if logging_activation:
+                metrics.update(activation_monitor.log_activations)
             fabric.log_dict(metrics, step=state["iter_num"] - 1)
 
         for i, val_dataloader in enumerate(val_dataloaders):

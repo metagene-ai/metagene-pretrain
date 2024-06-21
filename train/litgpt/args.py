@@ -38,6 +38,9 @@ class TrainArgs:
     max_norm: Optional[float] = None
     min_lr: float = 6e-5
 
+    """Number of iterations between logging activations"""
+    log_activation_interval: Optional[int] = None
+
     def gradient_accumulation_iters(self, devices: int) -> int:
         """Number of iterations between gradient synchronizations"""
         gradient_accumulation_iters = self.batch_size(devices) // self.micro_batch_size
