@@ -28,6 +28,10 @@ def log_activations_hook(
 
 
 class ActivationNormMetric:
+    """
+    This class is used to monitor the norm of the activation of the target layers. 
+    It attached hook to the forward of each layer that will log the output, and remove them after.
+    """
 
     def __init__(self, target_layers: list[str]):
         self.target_layers = target_layers
