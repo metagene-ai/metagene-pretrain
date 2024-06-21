@@ -44,7 +44,7 @@ train:
   epochs:
 
   # Total number of tokens to train on (type: Optional[int], default: 3000000000000)
-  max_tokens: 1_000_000_000 # TODO: change to a suitable value
+  max_tokens: 6_000_000_000 # TODO: change to a suitable value
 
 
   # Limits the number of optimizer steps to run. (type: Optional[int], default: null)
@@ -91,7 +91,8 @@ devices: auto
 
 # Optional path to the tokenizer dir that was used for preprocessing the dataset. Only some data
 # module require this. (type: Optional[Path], default: null)
-tokenizer_dir: checkpoints/genomics-llama
+# tokenizer_dir: checkpoints/genomics-llama
+tokenizer_dir: minbpe/tokenizer
 
 # The name of the logger to send metrics to. (type: Literal['wandb', 'tensorboard', 'csv'], default: tensorboard)
 logger_name: csv

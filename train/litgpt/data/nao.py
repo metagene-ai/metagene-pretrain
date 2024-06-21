@@ -42,7 +42,9 @@ class NAO(DataModule):
     train_dataset: Optional[NAODataset] = field(default=None, init=False, repr=False)
     test_dataset: Optional[NAODataset] = field(default=None, init=False, repr=False)
     deduplication: bool = True
-    collect_human_virus: bool = True
+    # collect_human_virus: bool = True
+    collect_human_virus: bool = False
+
 
     def __post_init__(self):
         # Could be a remote path (s3://) or a local path
@@ -102,11 +104,13 @@ class NAO(DataModule):
         
         human_virus_ids = []
         if self.collect_human_virus:
-            for fname in self.download_dir.glob("*-allmatches-*.allmatches.tsv"):
+            # for fname in self.download_dir.glob("*-allmatches-*.allmatches.tsv"):
+            for fname in self.download_dir.glob("*.txt"):
                 human_virus_ids += parse_human_virus_ids(fname)
 
         data, human_virus_data = [], []
-        for fname in self.download_dir.glob("*-cleaned-*.collapsed"):
+        # for fname in self.download_dir.glob("*-cleaned-*.collapsed"):
+        for fname in self.download_dir.glob("*.txt"):
             shard, human_virus_shard = parse_seq_reads(fname, human_virus_ids)
             data += shard
             human_virus_data += human_virus_shard

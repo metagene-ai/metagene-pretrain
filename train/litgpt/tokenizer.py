@@ -1,13 +1,21 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 import sys
+import os
 import ipdb
 import json
 from pathlib import Path
 from typing import List, Optional, Sequence, Union
 
+dirname = os.path.dirname(__file__)
+pathname = os.path.join(dirname, '../')
+sys.path.append(pathname)
+from minbpe.minbpe import RegexTokenizer
+
 import torch
 from transformers import PreTrainedTokenizer
 from transformers.tokenization_utils import AddedToken
+
+SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
 class Tokenizer:
     def __init__(self, checkpoint_dir: Union[Path, str]) -> None:
@@ -67,6 +75,16 @@ class Tokenizer:
             self.backend = "huggingface"
             self.bos_id = self.processor.bos_token_id
             self.eos_id = self.processor.eos_token_id
+        elif "minbpe" in str(checkpoint_dir):
+            self.backend = "bpe"
+            model_max_length = 512  # TODO: make this a parameter
+            self.processor = RegexTokenizer(SPLIT_PATTERN)
+            # self.processor.load('minbpe/tokenizer/mgfm-1024.model')
+            self.processor.load('minbpe/tokenizer/large-mgfm-1024.model')
+            vocab_size = self.processor.vocab_size
+            self.bos_id = vocab_size - 1
+            self.eos_id = vocab_size - 1
+            self.processor.pad_token_id = self.bos_id
         else:
             raise NotImplementedError
 
@@ -79,6 +97,8 @@ class Tokenizer:
                 return self.processor.vocab_size
         if self.backend == "sentencepiece":
             return self.processor.vocab_size()
+        if self.backend == "bpe":
+            return self.processor.vocab_size
         raise RuntimeError
 
     def token_to_id(self, token: str) -> int:
@@ -86,6 +106,8 @@ class Tokenizer:
             id_ = self.processor.token_to_id(token)
         elif self.backend == "sentencepiece":
             id_ = self.processor.piece_to_id(token)
+        elif self.backend == "bpe":
+            id_ = self.processor.encode(token)[0]
         else:
             raise RuntimeError
         if id_ is None:
@@ -93,7 +115,7 @@ class Tokenizer:
         return id_
 
     def check_if_bos_token_used(self, checkpoint_dir: Path) -> bool:
-        if "genomics" in str(checkpoint_dir):
+        if "genomics" in str(checkpoint_dir) or "minbpe" in str(checkpoint_dir):
             return True
         if not (
             tokenizer_config_path := checkpoint_dir / "tokenizer_config.json"
@@ -113,7 +135,7 @@ class Tokenizer:
         )
 
     def check_if_eos_token_used(self, checkpoint_dir: Path) -> bool:
-        if "genomics" in str(checkpoint_dir):
+        if "genomics" in str(checkpoint_dir) or "minbpe" in str(checkpoint_dir):
             return True
         return False
 
@@ -128,7 +150,7 @@ class Tokenizer:
         if self.backend == "huggingface":
             tokens = self.processor.encode(string)
             tokens = getattr(tokens, "ids", tokens)
-        elif self.backend == "sentencepiece":
+        elif self.backend in ["sentencepiece", "bpe"]:
             tokens = self.processor.encode(string)
         else:
             raise RuntimeError

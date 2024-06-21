@@ -368,6 +368,8 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
         if k >= max_iters:
             break
         if isinstance(batch, dict):
+            # fabric.print(batch['input_ids'].shape)
+            # fabric.print(batch['labels'].shape)
             _, T = batch["input_ids"].shape
             input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
             targets = batch["labels"][:, 1 : T].contiguous().long()

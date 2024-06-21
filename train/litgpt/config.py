@@ -1464,7 +1464,7 @@ genomics_llama = [
     dict(
         name="genomics-llama",
         block_size=512,
-        vocab_size=11,
+        vocab_size=1025,
         padding_multiple=64,
         n_layer=24,
         n_head=16,
