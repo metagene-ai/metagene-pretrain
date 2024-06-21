@@ -124,7 +124,7 @@ def setup(
 
     fabric.print(pprint.pformat(hparams))
     if logger_name in ("tensorboard", "wandb"):
-        fabric.logger.log_hyperparams(hparams)
+         fabric.logger.log_hyperparams(hparams)
 
     main(
         fabric,
@@ -275,7 +275,7 @@ def fit(
 
         logging_activation = train.log_activation_interval is not None and state["iter_num"] % log_activation_interval == 0
         if logging_activation:
-            activation_monitor = ActivationNormMetric(target_layers=["self_attn", "lm_head"])
+            activation_monitor = ActivationNormMetric(target_layers=["attn", "lm_head"])
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()

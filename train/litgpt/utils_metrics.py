@@ -4,9 +4,7 @@ import torch
 from torch.utils.hooks import RemovableHandle
 
 
-# TARGET_LAYER = ["self_attn", "lm_head"]
-
-
+_FSDP_WRAPPED_MODULE = ["_forward_module.","_fsdp_wrapped_module."]
 
 @torch.no_grad()
 def log_activations_hook(
@@ -20,6 +18,12 @@ def log_activations_hook(
         outp = outp[0]
 
     norm = outp.norm(p=2)
+
+    for prefix in _FSDP_WRAPPED_MODULE:
+        # here we remove fsdp prefix for shorted name in logger
+        if prefix in mod_name:
+            mod_name = mod_name.replace(prefix, "")
+
     if f"activation/{mod_name}" not in log_activations:
         log_activations[f"activation/{mod_name}"] = norm
     else:
