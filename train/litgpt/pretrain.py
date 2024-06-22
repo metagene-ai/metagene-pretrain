@@ -35,7 +35,7 @@ from litgpt.utils import (
     save_hyperparameters,
 )
 from litgpt.utils_metrics import ActivationNormMetric, get_grad_norm
-from litgpt.loss import MaxZLoss
+from litgpt.loss import cross_entropy_max_z_loss
 
 # Sanity check code
 # TODO: eventually remove this
@@ -244,10 +244,9 @@ def fit(
         model_fwd = lambda: meta_model(x)
 
         if train.z_loss:
-            z_loss = MaxZLoss(ignore_index=-100, z_loss_weight=train.z_loss_weight)
-            model_loss = lambda y: z_loss(y, x)[0]
+            model_loss = lambda y: sum(cross_entropy_max_z_loss(y, x, train.z_loss_weight)) # z loss return two loss
         else:
-            model_loss = lambda y: chunked_cross_entropy(y, x, chunk_size=0, ignore_index=-100)
+            model_loss = lambda y: chunked_cross_entropy(y, x, chunk_size=0)
 
         measured_flops = measure_flops(meta_model, model_fwd, model_loss)
         fabric.print(f"Measured TFLOPs: {measured_flops * fabric.world_size / 1e12:.2f}")
@@ -303,7 +302,7 @@ def fit(
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(input_ids)
             if train.z_loss:
-                loss, z_loss = z_loss(logits, targets)
+                loss, z_loss = cross_entropy_max_z_loss(logits, targets, train.z_loss_weight)
             else:
                 loss = chunked_cross_entropy(logits, targets)
             fabric.backward(loss / train.gradient_accumulation_iters(devices))

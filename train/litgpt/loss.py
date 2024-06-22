@@ -1,7 +1,17 @@
-from torch import nn, FloatTensor, IntTensor
+from torch import Tensor
+import torch.nn.functional as F
 
 
-class MaxZLoss(nn.CrossEntropyLoss):
+F.cross_entropy
+
+
+
+def cross_entropy_max_z_loss(
+    logits: Tensor,
+    targets: Tensor,
+    z_loss_weight: float,
+    ignore_index: int = -100,
+) -> Tensor:
     """MaxZLoss.
 
     from the baichuan2 paper: https://arxiv.org/abs/2309.10305
@@ -12,20 +22,15 @@ class MaxZLoss(nn.CrossEntropyLoss):
     where z is the max logit
     """
 
-    def __init__(self, z_loss_weight: float, ignore_index: int) -> None:
-        super().__init__(ignore_index=ignore_index)
-        self.z_loss_weight = z_loss_weight
+    logits = logits.reshape(-1, logits.size(-1))
+    targets = targets.reshape(-1)
+    
+    loss = F.cross_entropy(logits, targets, ignore_index=ignore_index)
+    max_logits = logits.max(dim=-1)[0]
+    max_logits = max_logits.where(targets != ignore_index, 0)
+    # max is not differentiable. But here we just pick the indices of the max
+    # value, so it's fine for backpropagation.
 
-    def forward(
-        self, logits: FloatTensor, target: FloatTensor
-    ) -> tuple[FloatTensor, FloatTensor]:
-        loss = super().forward(logits, target)
-
-        max_logits = logits.max(dim=-1)[0]
-        max_logits = max_logits.where(target != self.ignore_index, 0)
-        # max is not differentiable. But here we just pick the indices of the max
-        # value, so it's fine for backpropagation.
-
-        z_loss = self.weight * max_logits.pow(2).mean()
-        return loss, z_loss
+    z_loss = z_loss_weight * max_logits.pow(2).mean()
+    return loss, z_loss
 
