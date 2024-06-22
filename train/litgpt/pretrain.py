@@ -302,12 +302,14 @@ def fit(
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(input_ids)
             if train.z_loss:
-                loss, z_loss = cross_entropy_max_z_loss(logits, targets, train.z_loss_weight)
+                ce_loss, z_loss = cross_entropy_max_z_loss(logits, targets, train.z_loss_weight)
+                loss = ce_loss + z_loss # todo(sami): check if it is more performant to backward through both loss instead of summing and doing one backward.
             else:
-                loss = chunked_cross_entropy(logits, targets)
+                ce_loss = chunked_cross_entropy(logits, targets)
+                loss = ce_loss
             fabric.backward(loss / train.gradient_accumulation_iters(devices))
 
-        running_loss.update(loss.detach())
+        running_loss.update(ce_loss.detach())
         if train.z_loss:
             running_z_loss.update(z_loss.detach())
 
