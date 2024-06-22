@@ -1,14 +1,48 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Any, Dict, Optional, Sequence, Union, List
+from streaming import StreamingDataset, StreamingDataLoader
+from streaming.base.stream import Stream
 
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 from litgpt import Tokenizer
 # TODO: potentially implement MLMDataset
-from litgpt.data import DataModule, NAODataset, get_sft_collate_fn
+from litgpt.data import DataModule, get_sft_collate_fn
+
+
+
+class NAODataset(StreamingDataset):
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        batch_size: int,
+        *,
+        streams: Optional[Sequence[Stream]] = None,
+        remote: Optional[str] = None,
+        local: Optional[str] = None,
+        max_seq_length: int = -1,
+        ignore_index: int = -100,
+        split: Optional[str] = None,
+        streaming_kwargs: Dict[str, Any] = {},
+
+    ) -> None:
+        super().__init__(batch_size=batch_size, streams=streams, remote=remote, local=local, split=split, **streaming_kwargs)
+        self.tokenizer = tokenizer
+        self.max_seq_length = max_seq_length
+        self.ignore_index = ignore_index
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        example = super().__getitem__(idx)["text"]
+        encoded_prompt = self.tokenizer.encode(example, max_length=self.max_seq_length)
+        labels = encoded_prompt.clone()
+
+        return {"input_ids": encoded_prompt.type(torch.int64), "labels": labels.type(torch.int64)}
+
+
+
 
 # Our current implementation roughly follows the Alpaca data module
 # TODO: implement s3 streaming dataset for NAO
@@ -28,8 +62,10 @@ class NAO(DataModule):
     """The random seed for creating the train/val splits and shuffling the dataset."""
     num_workers: int = 4
     """How many DataLoader processes to use for loading."""
-    download_dir: Path = Path("./data/nao")
+    download_dir: Path = Path("./data/nao_mosaic")
     """The directory in which the downloaded dataset gets saved."""
+
+    local_cache: Path = Path("./data/naeo_mosaic_cache/")
 
     # data_path: Union[str, Path] = Path("data/")
     # """The path to the data directory, containing two folders 'slimpajama' and 'starcoder'
@@ -72,90 +108,31 @@ class NAO(DataModule):
         return
     
     def setup(self) -> None:
-
-        def parse_human_virus_ids(fname: Path) -> List[str]:
-            shard = []
-            with open(fname, "r") as f:
-                for line in f.readlines():
-                    line = line.strip().split()
-                    if not line[1].startswith("M_"):
-                        continue
-                    shard.append(line[1])
-            return shard
-
-        def parse_seq_reads(fname: Path, human_virus_ids: List[str]) -> List[str]:
-            shard = []
-            human_virus_shard = []
-            skip_read = False
-            with open(fname, "r") as f:
-                for line in f.readlines():
-                    if line.startswith("@"):
-                        id = line.strip().split()[0][1:]
-                        if id in human_virus_ids:
-                            skip_read = True
-                            continue
-                    if line[0] in ["A", "C", "G", "T"]:
-                        if skip_read:
-                            skip_read = False
-                            human_virus_shard.append(line.strip())
-                        else:
-                            shard.append(line.strip())
-            return shard, human_virus_shard
         
-        human_virus_ids = []
-        if self.collect_human_virus:
-            # for fname in self.download_dir.glob("*-allmatches-*.allmatches.tsv"):
-            for fname in self.download_dir.glob("*.txt"):
-                human_virus_ids += parse_human_virus_ids(fname)
-
-        data, human_virus_data = [], []
-        # for fname in self.download_dir.glob("*-cleaned-*.collapsed"):
-        for fname in self.download_dir.glob("*.txt"):
-            shard, human_virus_shard = parse_seq_reads(fname, human_virus_ids)
-            data += shard
-            human_virus_data += human_virus_shard
-
-        if self.deduplication:
-            original_len = len(data)
-            data = list(set(data))
-            print(f"Removed {original_len - len(data)} duplicates.")
-
-        # Partition the dataset into train and test
-        train_data, test_data = random_split(
-            data,
-            [1.0 - self.val_split_fraction, self.val_split_fraction],
-            generator=torch.Generator().manual_seed(self.seed),
-        )
-        train_data, test_data = list(train_data), list(test_data)
-
         self.train_dataset = NAODataset(
-            data=train_data,
+            batch_size=self.batch_size,
+            local=str(self.local_cache),
+            remote=str(self.download_dir),
+            split="train",
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
         )
         self.test_dataset = NAODataset(
-            data=test_data,
+            batch_size=self.batch_size,
+            local=str(self.local_cache),
+            split="test",
+            remote=str(self.download_dir),
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
         )
 
-        if self.collect_human_virus:
-            self.human_virus_dataset = NAODataset(
-                data=human_virus_data,
-                tokenizer=self.tokenizer,
-                max_seq_length=self.max_seq_length,
-                ignore_index=self.ignore_index,
-            )
-        else:
-            self.human_virus_dataset = None
-
-    def train_dataloader(self) -> DataLoader:
-        return DataLoader(
+    def train_dataloader(self) -> StreamingDataLoader:
+        return StreamingDataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=False,
             generator=torch.Generator().manual_seed(self.seed),
             num_workers=self.num_workers,
             collate_fn=get_sft_collate_fn(
@@ -165,9 +142,8 @@ class NAO(DataModule):
             ),
         )
 
-    def val_dataloader(self) -> List[DataLoader]:
-        dataloaders = [
-            DataLoader(
+    def val_dataloader(self) -> StreamingDataLoader:
+        return StreamingDataLoader(
                 self.test_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
@@ -178,22 +154,23 @@ class NAO(DataModule):
                     pad_id=self.tokenizer.processor.pad_token_id,
                 ),
             )
-        ]
-        if self.human_virus_dataset is not None:
-            dataloaders.append(
-                DataLoader(
-                    self.human_virus_dataset,
-                    batch_size=self.batch_size,
-                    shuffle=False,
-                    num_workers=self.num_workers,
-                    collate_fn=get_sft_collate_fn(
-                        max_seq_length=self.max_seq_length, 
-                        ignore_index=self.ignore_index,
-                        pad_id=self.tokenizer.processor.pad_token_id,
-                    ),
-                )
+        
+
+        # if self.human_virus_dataset is not None:
+        #     dataloaders.append(
+        #         DataLoader(
+        #             self.human_virus_dataset,
+        #             batch_size=self.batch_size,
+        #             shuffle=False,
+        #             num_workers=self.num_workers,
+        #             collate_fn=get_sft_collate_fn(
+        #                 max_seq_length=self.max_seq_length, 
+        #                 ignore_index=self.ignore_index,
+        #                 pad_id=self.tokenizer.processor.pad_token_id,
+        #             ),
+        #         )
             
-            )
-        return dataloaders
+        #     )
+        # return dataloaders
 
 
