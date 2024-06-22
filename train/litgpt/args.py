@@ -30,6 +30,10 @@ class TrainArgs:
     tie_embeddings: Optional[bool] = None
     """Whether to tie the embedding weights with the language modeling head weights"""
 
+    """Wheter use z loss or not"""
+    z_loss: bool = False
+    z_loss_weight: float = 2e-4
+
     # Optimization args
     learning_rate: float = 1e-3
     weight_decay: float = 0.02
