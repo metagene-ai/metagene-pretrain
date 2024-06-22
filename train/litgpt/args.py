@@ -1,6 +1,6 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -39,7 +39,8 @@ class TrainArgs:
     min_lr: float = 6e-5
 
     """Number of iterations between logging activations"""
-    log_activation_interval: Optional[int] = None
+    log_stability_interval: Optional[int] = None
+    stability_target_layers: list[str] = field(default_factory=lambda: ["attn", "lm_head"])
 
     def gradient_accumulation_iters(self, devices: int) -> int:
         """Number of iterations between gradient synchronizations"""

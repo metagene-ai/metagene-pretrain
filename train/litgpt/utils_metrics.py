@@ -6,6 +6,12 @@ from torch.utils.hooks import RemovableHandle
 
 _FSDP_WRAPPED_MODULE = ["_forward_module.","_fsdp_wrapped_module."]
 
+def _remove_fsdp_prefix(name: str) -> str:
+    for prefix in _FSDP_WRAPPED_MODULE:
+        if prefix in name:
+            return name.replace(prefix, "")
+    return name
+
 @torch.no_grad()
 def log_activations_hook(
     _mod: torch.nn.Module,
@@ -19,12 +25,9 @@ def log_activations_hook(
 
     norm = outp.norm(p=2)
 
-    for prefix in _FSDP_WRAPPED_MODULE:
-        # here we remove fsdp prefix for shorted name in logger
-        if prefix in mod_name:
-            mod_name = mod_name.replace(prefix, "")
+    name = _remove_fsdp_prefix(mod_name)
 
-    if f"activation/{mod_name}" not in log_activations:
+    if f"activation/{name}" not in log_activations:
         log_activations[f"activation/{mod_name}"] = norm
     else:
         log_activations[f"activation/{mod_name}"] += norm
@@ -68,3 +71,16 @@ class ActivationNormMetric:
         return self._log_activations
 
 
+
+def get_grad_norm(model: torch.nn.Module, target_layers: list[str]) -> dict[str, torch.Tensor]:
+    """
+    this function take a torch module and return a dictionary of the norm of the parameters grad
+    """
+    norms = {}
+    for name, param in model.named_parameters():
+        for layer in target_layers:
+            if name.endswith(f"{layer}.weight"):
+                if param.grad is not None:
+                    name = _remove_fsdp_prefix(name)
+                    norms[f"grad_norm/{name}"] = param.grad.data.norm(p=2)
+    return norms

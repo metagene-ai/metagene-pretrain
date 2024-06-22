@@ -34,7 +34,7 @@ from litgpt.utils import (
     save_config,
     save_hyperparameters,
 )
-from litgpt.utils_metrics import ActivationNormMetric
+from litgpt.utils_metrics import ActivationNormMetric, get_grad_norm
 
 # Sanity check code
 # TODO: eventually remove this
@@ -123,8 +123,8 @@ def setup(
     fabric.launch()
 
     fabric.print(pprint.pformat(hparams))
-    if logger_name in ("tensorboard", "wandb"):
-         fabric.logger.log_hyperparams(hparams)
+    # if logger_name in ("tensorboard", "wandb"):
+    #      fabric.logger.log_hyperparams(hparams)
 
     main(
         fabric,
@@ -177,7 +177,7 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    model = torch.compile(model)
+    # model = torch.compile(model)
     model = fabric.setup(model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -250,7 +250,7 @@ def fit(
     tokens_per_iter = train.micro_batch_size * model.max_seq_length
     max_iters = max_tokens_per_device // tokens_per_iter
     log_iter_interval = train.log_interval * train.gradient_accumulation_iters(devices)
-    log_activation_interval = train.log_activation_interval * train.gradient_accumulation_iters(devices) if train.log_activation_interval else None
+    log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(devices) if train.log_stability_interval else None
     initial_iter = state["iter_num"]
     train_iterator = CycleIterator(train_dataloader)
 
@@ -273,9 +273,9 @@ def fit(
 
         state["iter_num"] += 1
 
-        logging_activation = train.log_activation_interval is not None and state["iter_num"] % log_activation_interval == 0
-        if logging_activation:
-            activation_monitor = ActivationNormMetric(target_layers=["attn", "lm_head"])
+        logging_stability_metrics = train.log_stability_interval is not None and state["iter_num"] % log_activation_interval == 0
+        if logging_stability_metrics:
+            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers)
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()
@@ -297,11 +297,14 @@ def fit(
 
         if not is_accumulating:
             fabric.clip_gradients(model, optimizer, max_norm=train.max_norm)
+            if logging_stability_metrics:
+                grads_norm_to_log = get_grad_norm(model, train.stability_target_layers)
+
             optimizer.step()
             optimizer.zero_grad()
             state["step_count"] += 1
 
-            if logging_activation:
+            if logging_stability_metrics:
                 activation_monitor.remove_hooks()
 
         if state["iter_num"] % log_iter_interval == 0:
@@ -341,8 +344,9 @@ def fit(
 
             throughput_metrics = throughput.compute()
             metrics.update(throughput_metrics)
-            if logging_activation:
+            if logging_stability_metrics:
                 metrics.update(activation_monitor.log_activations)
+                metrics.update(grads_norm_to_log)
             fabric.log_dict(metrics, step=state["iter_num"] - 1)
 
         for i, val_dataloader in enumerate(val_dataloaders):
