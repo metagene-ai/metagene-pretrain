@@ -74,6 +74,8 @@ train:
   #   (type: float, default: 4e-05)
   min_lr: 4.0e-05
 
+  log_stability_interval: 50
+
 # Evaluation-related arguments. See ``litgpt.args.EvalArgs`` for details
 eval:
 
