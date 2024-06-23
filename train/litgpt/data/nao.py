@@ -1,14 +1,12 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Union, List
-from uuid import uuid4
+from typing import Any, Dict, Optional, Sequence
 from streaming import StreamingDataset, StreamingDataLoader
 import streaming
 from streaming.base.stream import Stream
 
 import torch
-import torch.distributed as dist
 
 from litgpt import Tokenizer
 # TODO: potentially implement MLMDataset
