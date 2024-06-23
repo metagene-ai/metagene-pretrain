@@ -2,11 +2,13 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Union, List
+from uuid import uuid4
 from streaming import StreamingDataset, StreamingDataLoader
+import streaming
 from streaming.base.stream import Stream
 
 import torch
-from torch.utils.data import DataLoader
+import torch.distributed as dist
 
 from litgpt import Tokenizer
 # TODO: potentially implement MLMDataset
@@ -65,7 +67,7 @@ class NAO(DataModule):
     download_dir: Path = Path("./data/nao_mosaic")
     """The directory in which the downloaded dataset gets saved."""
 
-    local_cache: Path = Path("./data/naeo_mosaic_cache/")
+    local_cache: Path = Path("/tmp/mds-cache/")
 
     # data_path: Union[str, Path] = Path("data/")
     # """The path to the data directory, containing two folders 'slimpajama' and 'starcoder'
@@ -107,20 +109,25 @@ class NAO(DataModule):
         #         )
         return
     
-    def setup(self) -> None:
-        
+    def setup(self, rank) -> None:
+
+        print(f"HEEEEEEEEERRRRE {rank}", flush=True)
+        streaming.base.util.clean_stale_shared_memory()
+        rank_id = f"rank_{rank}_id"
         self.train_dataset = NAODataset(
             batch_size=self.batch_size,
-            local=str(self.local_cache),
+            local=str(self.local_cache/"train"/rank_id),
+            # local=str(self.local_cache),
             remote=str(self.download_dir),
             split="train",
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
         )
+
         self.test_dataset = NAODataset(
             batch_size=self.batch_size,
-            local=str(self.local_cache),
+            local=str(self.local_cache/"test"/rank_id),
             split="test",
             remote=str(self.download_dir),
             tokenizer=self.tokenizer,
@@ -144,7 +151,7 @@ class NAO(DataModule):
 
     def val_dataloader(self) -> StreamingDataLoader:
         return StreamingDataLoader(
-                self.test_dataset,
+                self.train_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,

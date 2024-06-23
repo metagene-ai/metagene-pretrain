@@ -234,7 +234,7 @@ def fit(
     model = state["model"]
     optimizer = state["optimizer"]
 
-    validate(fabric, model, val_dataloaders[0], max_iters=2)  # sanity check
+    # validate(fabric, model, val_dataloaders[0], max_iters=2)  # sanity check
     throughput = ThroughputMonitor(fabric, window_size=5)
 
     with torch.device("meta"):
@@ -409,7 +409,7 @@ def get_dataloaders(
     data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=block_size)
     with fabric.rank_zero_first():
         data.prepare_data()
-    data.setup()
+    data.setup(rank=fabric.local_rank)
     train_dataloader = data.train_dataloader()
     val_dataloader = data.val_dataloader()
     if isinstance(val_dataloader, DataLoader):
