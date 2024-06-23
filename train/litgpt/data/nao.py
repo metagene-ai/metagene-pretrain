@@ -111,7 +111,6 @@ class NAO(DataModule):
     
     def setup(self, rank) -> None:
 
-        print(f"HEEEEEEEEERRRRE {rank}", flush=True)
         streaming.base.util.clean_stale_shared_memory()
         rank_id = f"rank_{rank}_id"
         self.train_dataset = NAODataset(
