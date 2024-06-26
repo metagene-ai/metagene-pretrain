@@ -52,17 +52,30 @@ parameter model on data.
         - [`pretrain.py`](train/litgpt/pretrain.py): pretraining model, e.g., initialize
           weights, setup optimizers, setup dataloaders, setup fabric, run training.
 
-## Running Model Training
+## Run Training
 
-First download a sample of the [wastewater sequence data (1.9 GB)
+**Install dependencies**
+
+```bash
+cd train
+pip install -e .
+pip install -e '.[all]'
+pip install -r minbpe/requirements.txt
+```
+
+**Download sample data**
+
+Download a sample of the [wastewater sequence data (1.9 GB)
 here](https://drive.google.com/file/d/1hbq0BTS0zbVS8Y708NE4_O21TmRuIM8B/view?usp=drive_link).
 
+**Train model**
+
 Update [line
-31](https://github.com/oliu-io/NAOSeq/blob/459b0293380ff88a787cbac3f763011e66dc128f/litgpt/data/nao.py#L31)
+31](https://github.com/MetagenomicFM/MetagenomicFM/blob/fce959b305d2c2e6b46a36b1ec1ca450183990b7/train/litgpt/data/nao.py#L31)
 in `train/litgpt/data/nao.py` to point to the directory containing the downloaded data.
 *Note: this directory should contain only the training data, saved as .txt files*.
 
-Run training:
+And then run:
 ```bash
 cd train
 python litgpt/pretrain.py --config config_hub/pretrain/genomicsllama.yml
