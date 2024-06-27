@@ -97,7 +97,7 @@ devices: auto
 tokenizer_dir: minbpe/tokenizer
 
 # The name of the logger to send metrics to. (type: Literal['wandb', 'tensorboard', 'csv'], default: tensorboard)
-logger_name: csv
+logger_name: wandb
 
 # The random seed to use for reproducibility. (type: int, default: 42)
 seed: 42
