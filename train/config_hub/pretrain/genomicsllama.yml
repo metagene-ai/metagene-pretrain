@@ -74,6 +74,8 @@ train:
   #   (type: float, default: 4e-05)
   min_lr: 4.0e-05
 
+  log_stability_interval: 50
+
 # Evaluation-related arguments. See ``litgpt.args.EvalArgs`` for details
 eval:
 
@@ -95,7 +97,7 @@ devices: auto
 tokenizer_dir: minbpe/tokenizer
 
 # The name of the logger to send metrics to. (type: Literal['wandb', 'tensorboard', 'csv'], default: tensorboard)
-logger_name: csv
+logger_name: wandb
 
 # The random seed to use for reproducibility. (type: int, default: 42)
 seed: 42
