@@ -4,6 +4,7 @@ import math
 import os
 import pprint
 import time
+import copy
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -123,8 +124,12 @@ def setup(
     fabric.launch()
 
     fabric.print(pprint.pformat(hparams))
-    # if logger_name in ("tensorboard", "wandb"):
-    #      fabric.logger.log_hyperparams(hparams)
+    if logger_name in ("tensorboard", "wandb"):
+        log_hparams = copy.deepcopy(hparams)
+        log_hparams['out_dir'] = str(log_hparams['out_dir'])
+        log_hparams['tokenizer_dir'] = str(log_hparams['tokenizer_dir'])
+        log_hparams['data'].download_dir = str(log_hparams['data'].download_dir)
+        fabric.logger.log_hyperparams(log_hparams)
 
     main(
         fabric,
@@ -177,7 +182,7 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    # model = torch.compile(model)
+    model = torch.compile(model)
     model = fabric.setup(model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -358,7 +363,7 @@ def fit(
                 td = time.perf_counter() - t0
 
                 fabric.print(f"iter {state['iter_num']}: val set {i} loss {val_loss[i]:.4f}, val time: {td * 1000:.2f} ms")
-                metrics = {f"val_{i}_loss": val_loss, f"val_{i}_ppl": math.exp(val_loss[i])}
+                metrics = {f"val_{i}_loss": float(val_loss[i]), f"val_{i}_ppl": math.exp(val_loss[i])}
                 fabric.log_dict(metrics, step=state["iter_num"] - 1)
                 fabric.barrier()
 
