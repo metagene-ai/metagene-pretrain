@@ -371,7 +371,11 @@ def fit(
             checkpoint_file = out_dir / f"step-{state['step_count']:08d}" / "lit_model.pth"
             checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
             fabric.print(f"Saving checkpoint to {str(checkpoint_file)!r}")
+            # Use buffer to fix issue with serializing state['train_dataloader']
+            buffer_train_dataloader = state['train_dataloader']
+            state['train_dataloader'] = None
             fabric.save(checkpoint_file, state)
+            state['train_dataloader'] = buffer_train_dataloader
             if fabric.global_rank == 0:
                 save_hyperparameters(setup, checkpoint_file.parent)
                 if tokenizer_dir is not None:
