@@ -280,7 +280,7 @@ def fit(
 
         logging_stability_metrics = train.log_stability_interval is not None and state["iter_num"] % log_activation_interval == 0
         if logging_stability_metrics:
-            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers)
+            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers, gradient_accumulation_steps=train.gradient_accumulation_iters(devices))
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()

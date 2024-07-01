@@ -28,22 +28,22 @@ def log_activations_hook(
     name = _remove_fsdp_prefix(mod_name)
 
     if f"activation/{name}" not in log_activations:
-        log_activations[f"activation/{mod_name}"] = norm
+        log_activations[f"activation/{name}"] = norm
     else:
-        log_activations[f"activation/{mod_name}"] += norm
+        log_activations[f"activation/{name}"] += norm
 
 
-
-class ActivationNormMetric:
+class ActivationNormMetric: 
     """
     This class is used to monitor the norm of the activation of the target layers. 
     It attached hook to the forward of each layer that will log the output, and remove them after.
     """
 
-    def __init__(self, target_layers: list[str]):
+    def __init__(self, target_layers: list[str], gradient_accumulation_steps: int):
         self.target_layers = target_layers
         self.handles: list[RemovableHandle] = []
         self._log_activations: dict[str, torch.Tensor] = {}
+        self.gradient_accumulation_steps = gradient_accumulation_steps
 
     def register_metrics_hooks(self, model: torch.nn.Module):
         """
@@ -68,8 +68,7 @@ class ActivationNormMetric:
 
     @property
     def log_activations(self) -> dict[str, torch.Tensor]:
-        return self._log_activations
-
+        return {k: v / self.gradient_accumulation_steps for k, v in self._log_activations.items()}
 
 
 def get_grad_norm(model: torch.nn.Module, target_layers: list[str]) -> dict[str, torch.Tensor]:
