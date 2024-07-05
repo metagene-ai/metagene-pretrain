@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
+import numpy as np
 from streaming import StreamingDataset, StreamingDataLoader
 import streaming
 from streaming.base.stream import Stream
@@ -27,21 +28,33 @@ class NAODataset(StreamingDataset):
         ignore_index: int = -100,
         split: Optional[str] = None,
         streaming_kwargs: Dict[str, Any] = {},
+        context_stuffing: bool = False,
+        seed: Optional[int] = None,
 
     ) -> None:
         super().__init__(batch_size=batch_size, streams=streams, remote=remote, local=local, split=split, **streaming_kwargs)
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
         self.ignore_index = ignore_index
+        self.context_stuffing = context_stuffing
+        self.rng = np.random.RandomState(seed=seed)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         example = super().__getitem__(idx)["text"]
-        encoded_prompt = self.tokenizer.encode(example, max_length=self.max_seq_length)
-        labels = encoded_prompt.clone()
+        toks = self.tokenizer.encode(example, max_length=self.max_seq_length)
+        if not self.context_stuffing:
+            labels = toks.clone()
+            return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
+        else:
+            remaining_toks_cnt = self.max_seq_length - len(toks)
+            if remaining_toks_cnt:
+                s_idx = self.rng.randint(
+                    low=0, high=max(1, len(toks) - remaining_toks_cnt + 1)
+                )
+                additional_toks = toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
+                toks = torch.cat([toks, additional_toks], dim=0)
 
-        return {"input_ids": encoded_prompt.type(torch.int64), "labels": labels.type(torch.int64)}
-
-
+            return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)} #, "attention_mask": attention_mask.type(torch.int64)}
 
 
 # Our current implementation roughly follows the Alpaca data module
@@ -80,6 +93,7 @@ class NAO(DataModule):
     deduplication: bool = True
     # collect_human_virus: bool = True
     collect_human_virus: bool = False
+    context_stuffing: bool = False
 
 
     def __post_init__(self):
@@ -120,6 +134,7 @@ class NAO(DataModule):
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
+            context_stuffing=self.context_stuffing,
         )
 
         self.test_dataset = NAODataset(
@@ -130,6 +145,7 @@ class NAO(DataModule):
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
+            context_stuffing=self.context_stuffing,
         )
 
     def train_dataloader(self) -> StreamingDataLoader:

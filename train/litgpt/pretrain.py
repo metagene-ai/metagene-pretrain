@@ -74,6 +74,7 @@ def setup(
     logger_name: Literal["wandb", "tensorboard", "csv"] = "tensorboard",
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
+    context_stuffing: bool = False,
 ):
     """Pretrain a model.
 
@@ -100,7 +101,7 @@ def setup(
     hparams = locals()
 
     if 'genomics' in hparams['model_name']:
-        data = NAO()
+        data = NAO(context_stuffing=context_stuffing)
     elif data is None:
         data = TinyLlama()
 
