@@ -46,7 +46,8 @@ all = [
     "safetensors",               # download
     "huggingface_hub[hf_transfer]>=0.21.0",  # download
     "transformers", #tokenizer
-    "wandb"
+    "wandb",
+    "mosaicml-streaming"
 ]
 
 [build-system]
