@@ -8,7 +8,7 @@ import copy
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
-from typing import Optional, Tuple, Union, List
+from typing import Callable, Optional, Tuple, Union, List
 
 import lightning as L
 import torch
@@ -36,6 +36,7 @@ from litgpt.utils import (
     save_hyperparameters,
 )
 from litgpt.utils_metrics import ActivationNormMetric, get_grad_norm
+from litgpt.loss import cross_entropy_max_z_loss
 
 # Sanity check code
 # TODO: eventually remove this
@@ -247,7 +248,12 @@ def fit(
         meta_model = GPT(model.config)
         x = torch.randint(0, 1, (train.micro_batch_size, meta_model.max_seq_length))
         model_fwd = lambda: meta_model(x)
-        model_loss = lambda y: chunked_cross_entropy(y, x, chunk_size=0)
+
+        if train.z_loss:
+            model_loss = lambda y: sum(cross_entropy_max_z_loss(y, x, train.z_loss_weight)) # z loss return two loss
+        else:
+            model_loss = lambda y: chunked_cross_entropy(y, x, chunk_size=0)
+
         measured_flops = measure_flops(meta_model, model_fwd, model_loss)
         fabric.print(f"Measured TFLOPs: {measured_flops * fabric.world_size / 1e12:.2f}")
         del meta_model, x
@@ -263,6 +269,11 @@ def fit(
     running_loss = RunningMean(window=train.gradient_accumulation_iters(devices), sync_on_compute=False).to(
         fabric.device
     )
+
+    if train.z_loss:
+        running_z_loss = RunningMean(window=train.gradient_accumulation_iters(devices), sync_on_compute=False).to(
+            fabric.device
+        )
     fabric.barrier()
     total_t0 = time.perf_counter()
     val_loss = ["n/a"] * len(val_dataloaders)
@@ -281,7 +292,7 @@ def fit(
 
         logging_stability_metrics = train.log_stability_interval is not None and state["iter_num"] % log_activation_interval == 0
         if logging_stability_metrics:
-            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers)
+            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers, gradient_accumulation_steps=train.gradient_accumulation_iters(devices))
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()
@@ -296,10 +307,17 @@ def fit(
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(input_ids)
-            loss = chunked_cross_entropy(logits, targets)
+            if train.z_loss:
+                ce_loss, z_loss = cross_entropy_max_z_loss(logits, targets, train.z_loss_weight)
+                loss = ce_loss + z_loss # todo(sami): check if it is more performant to backward through both loss instead of summing and doing one backward.
+            else:
+                ce_loss = chunked_cross_entropy(logits, targets)
+                loss = ce_loss
             fabric.backward(loss / train.gradient_accumulation_iters(devices))
 
-        running_loss.update(loss.detach())
+        running_loss.update(ce_loss.detach())
+        if train.z_loss:
+            running_z_loss.update(z_loss.detach())
 
         if not is_accumulating:
             fabric.clip_gradients(model, optimizer, max_norm=train.max_norm)
@@ -315,6 +333,8 @@ def fit(
 
         if state["iter_num"] % log_iter_interval == 0:
             loss = running_loss.compute().item()  # expensive device-to-host synchronization
+            if train.z_loss:
+                z_loss = running_z_loss.compute().item()
             t1 = time.perf_counter()
             throughput.update(
                 time=(t1 - total_t0),
@@ -336,6 +356,8 @@ def fit(
                 "total_tokens": (state["iter_num"] * train.micro_batch_size * model.max_seq_length * fabric.world_size),
                 "learning_rate": lr,
             }
+            if train.z_loss:
+                metrics["z_loss"] = z_loss
             if isinstance(val_loss[0], float):
                 val_loss = [f"{v:.3f}" for v in val_loss]
             val_loss_str = ", ".join(f"val {i}: {v}" for i, v in enumerate(val_loss))
@@ -372,7 +394,11 @@ def fit(
             checkpoint_file = out_dir / f"step-{state['step_count']:08d}" / "lit_model.pth"
             checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
             fabric.print(f"Saving checkpoint to {str(checkpoint_file)!r}")
+            # Use buffer to fix issue with serializing state['train_dataloader']
+            buffer_train_dataloader = state['train_dataloader']
+            state['train_dataloader'] = None
             fabric.save(checkpoint_file, state)
+            state['train_dataloader'] = buffer_train_dataloader
             if fabric.global_rank == 0:
                 save_hyperparameters(setup, checkpoint_file.parent)
                 if tokenizer_dir is not None:
