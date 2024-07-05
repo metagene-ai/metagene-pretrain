@@ -53,6 +53,7 @@ class NAODataset(StreamingDataset):
                 )
                 additional_toks = toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
                 toks = torch.cat([toks, additional_toks], dim=0)
+                labels = toks.clone()
 
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)} #, "attention_mask": attention_mask.type(torch.int64)}
 
