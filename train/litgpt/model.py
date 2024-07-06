@@ -253,9 +253,6 @@ class CausalSelfAttention(nn.Module):
     
     def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
-        print(q.dtype)
-        print(k.dtype)
-        print(v.dtype)
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
 
     def build_kv_cache(
