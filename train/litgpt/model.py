@@ -227,8 +227,10 @@ class CausalSelfAttention(nn.Module):
                 raise TypeError("You need to call `gpt.set_kv_cache()`")
             k, v = self.kv_cache(input_pos, k, v)
 
+        if self.kv_cache is not None and self.config.attention_impl == "fa2":
+            raise NotImplementedError("FA2 with kv cache is not implemented")
+        
         y = self.scaled_dot_product_attention(q, k, v, mask)
-
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
         # output projection
@@ -253,6 +255,11 @@ class CausalSelfAttention(nn.Module):
     
     def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
+        q = q.transpose(1, 2) 
+        k = k.transpose(1, 2)  
+        v = v.transpose(1, 2)  #
+
+        # q/k/b is [b, nh, t, hs] but fa2 expected [b, t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
 
     def build_kv_cache(

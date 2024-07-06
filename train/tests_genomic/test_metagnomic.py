@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from litgpt.model import Config
+from litgpt.model import CausalSelfAttention, Config
 from litgpt.model import GPT
 from lightning.fabric import Fabric
 
@@ -26,12 +26,14 @@ def test_gpt(config: Config, attention_impl: str, precision: str):
     model = GPT(config)
     model = fabric.setup(model)
 
+    BATCH_SIZE = 16
+    SEQ_LEN = 8
+    VOCAB_SIZE = 1024
 
-    input = torch.randint(0, 1024, (1, 10)).to(fabric.device)
+    input = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, SEQ_LEN)).to(fabric.device)
 
     output = model(input)
     assert output is not None
-    
 
 
 
