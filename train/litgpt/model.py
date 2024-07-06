@@ -12,6 +12,7 @@ from typing import Any, Optional, Tuple
 import torch
 import torch.nn as nn
 from typing_extensions import Self
+from flash_attn import flash_attn_func
 
 from litgpt.config import Config
 
@@ -236,11 +237,26 @@ class CausalSelfAttention(nn.Module):
     def scaled_dot_product_attention(
         self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
+        if self.config.attention_impl == "sdpa":
+            return self._sdpa_attention(q, k, v, mask)
+        elif self.config.attention_impl == "fa2":
+            return self._fa2_attention(q, k, v, mask)
+        else:
+            raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
+
+    def _sdpa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
         y = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, dropout_p=0.0, scale=scale, is_causal=mask is None
         )
         return y.transpose(1, 2)
+    
+    def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        scale = 1.0 / math.sqrt(self.config.head_size)
+        print(q.dtype)
+        print(k.dtype)
+        print(v.dtype)
+        return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
 
     def build_kv_cache(
         self,
