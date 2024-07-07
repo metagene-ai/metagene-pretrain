@@ -62,6 +62,7 @@ class Config:
     n_expert: int = 0
     n_expert_per_token: int = 0
     attention_impl: Literal["sdpa", "fa2"] = "sdpa"
+    context_stuffing: bool = False
 
     def __post_init__(self):
         if not self.name:
@@ -91,6 +92,9 @@ class Config:
             self.intermediate_size = 4 * self.n_embd
 
         self.rope_n_elem = int(self.rotary_percentage * self.head_size)
+
+        if self.context_stuffing and self.attention_impl != "fa2":
+            raise ValueError("Context stuffing is only supported with FA2")
 
     @classmethod
     def from_name(cls, name: str, **kwargs: Any) -> Self:
@@ -140,6 +144,7 @@ class Config:
 
             return partial(RMSNorm, add_unit_offset="Gemma" in self.name)
         return getattr(torch.nn, self.norm_class_name)
+
 
 
 ########################

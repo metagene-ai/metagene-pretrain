@@ -12,7 +12,7 @@ from typing import Any, Optional, Tuple
 import torch
 import torch.nn as nn
 from typing_extensions import Self
-from flash_attn import flash_attn_func
+from flash_attn import flash_attn_func, flash_attn_varlen_func
 
 from litgpt.config import Config
 
