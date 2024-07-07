@@ -72,7 +72,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None) -> torch.Tensor:
         T = idx.size(1)
         if self.max_seq_length < T:
             raise ValueError(f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}.")
@@ -93,7 +93,7 @@ class GPT(nn.Module):
             x = x * (self.config.n_embd**0.5)
 
         for block in self.transformer.h:
-            x = block(x, cos, sin, mask, input_pos)
+            x = block(x, cos, sin, mask, input_pos, cu_seqlens)
         x = self.transformer.ln_f(x)
         return self.lm_head(x)  # (b, t, vocab_size)
 
@@ -155,9 +155,10 @@ class Block(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         n_1 = self.norm_1(x)
-        h = self.attn(n_1, cos, sin, mask, input_pos)
+        h = self.attn(n_1, cos, sin, mask, input_pos, cu_seqlens)
         if self.config.parallel_residual:
             n_2 = n_1 if self.config.shared_attention_norm else self.norm_2(x)
             x = self.mlp(n_2) + h + x
@@ -197,7 +198,8 @@ class CausalSelfAttention(nn.Module):
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
-        assert (self.config.context_stuffing is not None) == (cu_seqlens is not None), "cu_seqlens should only be provided when context_stuffing is True"
+        if cu_seqlens is not None:
+            assert self.config.context_stuffing is not None, "cu_seqlens should only be provided when context_stuffing is True"
 
         qkv = self.attn(x)
 
@@ -234,24 +236,32 @@ class CausalSelfAttention(nn.Module):
         if self.kv_cache is not None and self.config.attention_impl == "fa2":
             raise NotImplementedError("FA2 with kv cache is not implemented")
         
-        if self.config.context_stuffing:
-            y = self.fa2_context_stuffing_attention(q, k, v,cu_seqlens, self.config.block_size)
-        else:
-            y = self.scaled_dot_product_attention(q, k, v, mask)
+
+        y = self.scaled_dot_product_attention(q, k, v, mask, cu_seqlens)
+
+
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
         # output projection
         return self.proj(y)
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        if self.config.attention_impl == "sdpa":
-            return self._sdpa_attention(q, k, v, mask)
-        elif self.config.attention_impl == "fa2":
-            return self._fa2_attention(q, k, v, mask)
+
+     
+        if self.config.context_stuffing:
+            if self.config.attention_impl != "fa2":
+                raise ValueError(f"Context stuffing is only supported for FA2 attention, but got {self.config.attention_impl}")
+            
+            return self._fa2_context_stuffing_attention(q, k, v,cu_seqlens, self.config.block_size)
         else:
-            raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
+            if self.config.attention_impl == "sdpa":
+                return self._sdpa_attention(q, k, v, mask)
+            elif self.config.attention_impl == "fa2":
+                return self._fa2_attention(q, k, v, mask)
+            else:
+                raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
 
     def _sdpa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
@@ -268,7 +278,7 @@ class CausalSelfAttention(nn.Module):
         # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
 
-    def fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
+    def _fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
         q = rearrange(q, 'b n t h -> (b t) n h')
         k = rearrange(k, 'b n t h -> (b t) n h')
