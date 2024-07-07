@@ -197,6 +197,7 @@ class CausalSelfAttention(nn.Module):
         cu_seqlens: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+        print(f"x.dtype: {x.dtype}")
 
         qkv = self.attn(x)
 
@@ -271,6 +272,7 @@ class CausalSelfAttention(nn.Module):
         q = rearrange(q, 'b n t h -> b t n h')
         k = rearrange(k, 'b n t h -> b t n h')
         v = rearrange(v, 'b n t h -> b t n h')
+        print(q.dtype, k.dtype, v.dtype)
         # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
 

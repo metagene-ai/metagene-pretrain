@@ -47,20 +47,22 @@ class NAODataset(StreamingDataset):
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
         else:
+            seqlens = []
             remaining_toks_cnt = self.max_seq_length - len(toks)
-            og_toks_len = len(toks)
-            if remaining_toks_cnt:
+            seqlens.append(len(toks))
+
+            while remaining_toks_cnt > 0:
                 s_idx = self.rng.randint(
                     low=0, high=max(1, len(toks) - remaining_toks_cnt + 1)
                 )
                 additional_toks = toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
                 toks = torch.cat([toks, additional_toks], dim=0)
-                labels = toks.clone()
-                seqlens = [og_toks_len, remaining_toks_cnt]
-
+                seqlens.append(remaining_toks_cnt)
+            assert len(toks) == self.max_seq_length, f"{len(toks)} != {self.max_seq_length}"
+            labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
 
-
+    
     
 def get_context_stuffing_collate_fn(max_seq_length: int = -1):
     """Returns the collate function for context stuffing pretraining (needed in the DataLoader).
@@ -124,9 +126,6 @@ class NAO(DataModule):
 
     tokenizer: Optional[Tokenizer] = field(default=None, init=False, repr=False)
     batch_size: int = field(default=1, init=False, repr=False)
-    max_seq_length: int = field(default=-1, init=False, repr=False)
-    train_dataset: Optional[NAODataset] = field(default=None, init=False, repr=False)
-    test_dataset: Optional[NAODataset] = field(default=None, init=False, repr=False)
     deduplication: bool = True
     # collect_human_virus: bool = True
     collect_human_virus: bool = False
@@ -169,7 +168,7 @@ class NAO(DataModule):
             remote=str(self.download_dir),
             split="train",
             tokenizer=self.tokenizer,
-            max_seq_length=self.max_seq_length,
+            max_seq_length=self.seq_length,
             ignore_index=self.ignore_index,
             context_stuffing=self.context_stuffing,
         )
@@ -180,7 +179,7 @@ class NAO(DataModule):
             split="test",
             remote=str(self.download_dir),
             tokenizer=self.tokenizer,
-            max_seq_length=self.max_seq_length,
+            max_seq_length=self.seq_length,
             ignore_index=self.ignore_index,
             context_stuffing=self.context_stuffing,
         )
@@ -188,16 +187,12 @@ class NAO(DataModule):
     def get_collate_fn(self):
         if not self.context_stuffing:
             return get_sft_collate_fn(
-                max_seq_length=self.max_seq_length, 
+                max_seq_length=self.seq_length, 
                 ignore_index=self.ignore_index, 
                 pad_id=self.tokenizer.processor.pad_token_id,
             )
         else:
-            return get_context_stuffing_collate_fn(
-                max_seq_length=self.max_seq_length, 
-                ignore_index=self.ignore_index, 
-            
-            )
+            return get_context_stuffing_collate_fn(max_seq_length=self.seq_length)
     def train_dataloader(self) -> StreamingDataLoader:
         return StreamingDataLoader(
             self.train_dataset,

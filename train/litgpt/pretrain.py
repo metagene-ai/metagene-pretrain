@@ -75,6 +75,7 @@ def setup(
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = False,
+    use_fa2: bool = False,
 ):
     """Pretrain a model.
 
@@ -110,6 +111,7 @@ def setup(
     elif model_config is None and model_name is None:
         model_name = "tiny-llama-1.1b"
     config = Config.from_name(model_name) if model_config is None else model_config
+    config.attention_impl = "fa2" if use_fa2 else "sdpa"
     devices = parse_devices(devices)
     out_dir = init_out_dir(out_dir)
     # in case the dataset requires the Tokenizer
@@ -301,11 +303,15 @@ def fit(
             _, T = train_data["input_ids"].shape
             input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
             targets = train_data["labels"][:, 1 : T].contiguous().long()
-            cu_seqlens = train_data["cu_seqlens"].contiguous().int32()
+
+            if "cu_seqlens" in train_data:
+                cu_seqlens = train_data.get["cu_seqlens"].contiguous().int32()
+            else:
+                cu_seqlens = None
         else:
             input_ids = train_data[:, 0 : model.max_seq_length].contiguous().long()
             targets = train_data[:, 1 : (model.max_seq_length + 1)].contiguous().long()
-            cu_seqlens = None,
+            cu_seqlens = None
         
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
