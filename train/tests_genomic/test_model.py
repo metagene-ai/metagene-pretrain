@@ -24,11 +24,10 @@ def test_gpt(config: Config, attention_impl: str, precision: str):
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_context_stuffing(config: Config, precision: str):
     config.attention_impl = "fa2"
-    config.context_stuffing = True
-    _test_gpt(config, precision)
+    _test_gpt(config, precision, context_stuffing=True)
 
 
-def _test_gpt(config: Config, precision: str):
+def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
 
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
@@ -42,7 +41,7 @@ def _test_gpt(config: Config, precision: str):
 
     input = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, SEQ_LEN)).to(fabric.device)
 
-    if config.context_stuffing:
+    if context_stuffing:
         cu_seqlens = torch.randint(0, SEQ_LEN, (BATCH_SIZE,))
         for i in range(1, BATCH_SIZE): # this ensure that cu_seqlens is cummulative, i.e, increasing for each sample in the batch
             cu_seqlens[i] = cu_seqlens[i-1] + cu_seqlens[i]

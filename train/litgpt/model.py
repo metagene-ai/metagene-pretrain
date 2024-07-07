@@ -198,9 +198,6 @@ class CausalSelfAttention(nn.Module):
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
-        if cu_seqlens is not None:
-            assert self.config.context_stuffing is not None, "cu_seqlens should only be provided when context_stuffing is True"
-
         qkv = self.attn(x)
 
         # assemble into a number of query groups to support MHA, MQA and GQA together (see `config.n_query_groups`)
@@ -249,8 +246,7 @@ class CausalSelfAttention(nn.Module):
         self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
 
-     
-        if self.config.context_stuffing:
+        if cu_seqlens is not None:
             if self.config.attention_impl != "fa2":
                 raise ValueError(f"Context stuffing is only supported for FA2 attention, but got {self.config.attention_impl}")
             
