@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 from typing_extensions import Self
 from flash_attn import flash_attn_func, flash_attn_varlen_func
+from einops import rearrange
 
 from litgpt.config import Config
 
@@ -192,8 +193,11 @@ class CausalSelfAttention(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+
+        assert (self.config.context_stuffing is not None) == (cu_seqlens is not None), "cu_seqlens should only be provided when context_stuffing is True"
 
         qkv = self.attn(x)
 
@@ -230,7 +234,10 @@ class CausalSelfAttention(nn.Module):
         if self.kv_cache is not None and self.config.attention_impl == "fa2":
             raise NotImplementedError("FA2 with kv cache is not implemented")
         
-        y = self.scaled_dot_product_attention(q, k, v, mask)
+        if self.config.context_stuffing:
+            y = self.fa2_context_stuffing_attention(q, k, v,cu_seqlens, self.config.block_size)
+        else:
+            y = self.scaled_dot_product_attention(q, k, v, mask)
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
         # output projection
@@ -255,12 +262,19 @@ class CausalSelfAttention(nn.Module):
     
     def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
-        q = q.transpose(1, 2) 
-        k = k.transpose(1, 2)  
-        v = v.transpose(1, 2)  #
-
-        # q/k/b is [b, nh, t, hs] but fa2 expected [b, t, nh, hs]
+        q = rearrange(q, 'b n t h -> b t n h')
+        k = rearrange(k, 'b n t h -> b t n h')
+        v = rearrange(v, 'b n t h -> b t n h')
+        # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
+
+    def fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
+        scale = 1.0 / math.sqrt(self.config.head_size)
+        q = rearrange(q, 'b n t h -> (b t) n h')
+        k = rearrange(k, 'b n t h -> (b t) n h')
+        v = rearrange(v, 'b n t h -> (b t) n h')
+        # q/k/b is [b, nh, t, hs] but fa2 expected [b * t, nh, hs]
+        return flash_attn_varlen_func(q, k, v, cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens, max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen, causal=True, softmax_scale=scale)
 
     def build_kv_cache(
         self,

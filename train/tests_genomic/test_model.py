@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from litgpt.model import CausalSelfAttention, Config
+from litgpt.model import Config
 from litgpt.model import GPT
 from lightning.fabric import Fabric
 

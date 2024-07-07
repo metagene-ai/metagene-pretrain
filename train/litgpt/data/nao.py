@@ -1,7 +1,8 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, List
 import numpy as np
 from streaming import StreamingDataset, StreamingDataLoader
 import streaming
@@ -11,7 +12,8 @@ import torch
 
 from litgpt import Tokenizer
 # TODO: potentially implement MLMDataset
-from litgpt.data import DataModule, get_sft_collate_fn
+from litgpt.data import DataModule
+from litgpt.data.base import get_sft_collate_fn
 
 
 
@@ -30,7 +32,6 @@ class NAODataset(StreamingDataset):
         streaming_kwargs: Dict[str, Any] = {},
         context_stuffing: bool = False,
         seed: Optional[int] = None,
-
     ) -> None:
         super().__init__(batch_size=batch_size, streams=streams, remote=remote, local=local, split=split, **streaming_kwargs)
         self.tokenizer = tokenizer
@@ -47,6 +48,7 @@ class NAODataset(StreamingDataset):
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
         else:
             remaining_toks_cnt = self.max_seq_length - len(toks)
+            og_toks_len = len(toks)
             if remaining_toks_cnt:
                 s_idx = self.rng.randint(
                     low=0, high=max(1, len(toks) - remaining_toks_cnt + 1)
@@ -54,8 +56,42 @@ class NAODataset(StreamingDataset):
                 additional_toks = toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
                 toks = torch.cat([toks, additional_toks], dim=0)
                 labels = toks.clone()
+                seqlens = [og_toks_len, remaining_toks_cnt]
 
-            return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)} #, "attention_mask": attention_mask.type(torch.int64)}
+            return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
+
+
+    
+def get_context_stuffing_collate_fn(max_seq_length: int = -1):
+    """Returns the collate function for context stuffing pretraining (needed in the DataLoader).
+
+    The collate function gets a list of dicts with keys `input_ids` and `labels`.
+    It returns a dict with batched `input_ids` and `labels`. Also pads short sequences to the longest element in
+    the batch. Optionally truncates all sequences to the specified maximum length.
+    """
+    return partial(_context_stuffing_collate_fn, max_seq_length=max_seq_length)
+
+
+def _context_stuffing_collate_fn(samples: List[Dict[str, torch.Tensor]], max_seq_length: int = -1) -> Dict[str, torch.Tensor]:
+    batched = {}
+    for key in ("input_ids", "labels"):
+        batched[key] = torch.stack([sample[key] for sample in samples])
+        # Truncate if needed
+        if max_seq_length > 0:
+            batched[key] = batched[key][:, :max_seq_length]
+
+    nonc_cu_seqlens = [seqlen for sample in samples for seqlen in sample["seqlens"]]
+    batched["cu_seqlens"] = _get_cu_seqlens(nonc_cu_seqlens=nonc_cu_seqlens)
+    return batched
+
+def _get_cu_seqlens(nonc_cu_seqlens: List[torch.Tensor]) -> torch.Tensor:
+    cu_seqlens = []
+    running_sum = 0
+    for seqlen in nonc_cu_seqlens:
+        cu_seqlens.append(seqlen + running_sum)
+        running_sum += seqlen
+
+    return torch.Tensor(cu_seqlens).to(torch.int32)
 
 
 # Our current implementation roughly follows the Alpaca data module
@@ -149,6 +185,19 @@ class NAO(DataModule):
             context_stuffing=self.context_stuffing,
         )
 
+    def get_collate_fn(self):
+        if not self.context_stuffing:
+            return get_sft_collate_fn(
+                max_seq_length=self.max_seq_length, 
+                ignore_index=self.ignore_index, 
+                pad_id=self.tokenizer.processor.pad_token_id,
+            )
+        else:
+            return get_context_stuffing_collate_fn(
+                max_seq_length=self.max_seq_length, 
+                ignore_index=self.ignore_index, 
+            
+            )
     def train_dataloader(self) -> StreamingDataLoader:
         return StreamingDataLoader(
             self.train_dataset,
@@ -156,11 +205,7 @@ class NAO(DataModule):
             shuffle=False,
             generator=torch.Generator().manual_seed(self.seed),
             num_workers=self.num_workers,
-            collate_fn=get_sft_collate_fn(
-                max_seq_length=self.max_seq_length, 
-                ignore_index=self.ignore_index, 
-                pad_id=self.tokenizer.processor.pad_token_id,
-            ),
+            collate_fn=self.get_collate_fn()
         )
 
     def val_dataloader(self) -> StreamingDataLoader:
@@ -169,11 +214,7 @@ class NAO(DataModule):
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,
-                collate_fn=get_sft_collate_fn(
-                    max_seq_length=self.max_seq_length, 
-                    ignore_index=self.ignore_index,
-                    pad_id=self.tokenizer.processor.pad_token_id,
-                ),
+                collate_fn=self.get_collate_fn()
             )
         
 
