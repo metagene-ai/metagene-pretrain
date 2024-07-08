@@ -50,20 +50,19 @@ class NAODataset(StreamingDataset):
             seqlens = []
             remaining_toks_cnt = self.max_seq_length - len(toks)
             seqlens.append(len(toks))
-
             while remaining_toks_cnt > 0:
                 s_idx = self.rng.randint(
                     low=0, high=max(1, len(toks) - remaining_toks_cnt + 1)
                 )
                 additional_toks = toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
+                seqlens.append(len(additional_toks))
                 toks = torch.cat([toks, additional_toks], dim=0)
-                seqlens.append(remaining_toks_cnt)
+                remaining_toks_cnt = self.max_seq_length - len(toks)
+
             assert len(toks) == self.max_seq_length, f"{len(toks)} != {self.max_seq_length}"
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
 
-    
-    
 def get_context_stuffing_collate_fn(max_seq_length: int = -1):
     """Returns the collate function for context stuffing pretraining (needed in the DataLoader).
 
