@@ -136,6 +136,7 @@ def setup(
         log_hparams['data'].download_dir = str(log_hparams['data'].download_dir)
         fabric.logger.log_hyperparams(log_hparams)
 
+
     main(
         fabric,
         devices,
@@ -188,7 +189,7 @@ def main(
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
     model = torch.compile(model)
-    model = fabric.setup(model)
+    model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=train.learning_rate,
@@ -248,7 +249,9 @@ def fit(
     throughput = ThroughputMonitor(fabric, window_size=5)
 
     with torch.device("meta"):
-        meta_model = GPT(model.config)
+        config_copy = copy.deepcopy(model.config)
+        config_copy.attention_impl = "sdpa" # we force sdpa because fa2 cannot be used for meta model
+        meta_model = GPT(config_copy)
         x = torch.randint(0, 1, (train.micro_batch_size, meta_model.max_seq_length))
         model_fwd = lambda: meta_model(x)
 

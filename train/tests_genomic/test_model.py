@@ -50,6 +50,7 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
         cu_seqlens = None
 
     output = model(input, cu_seqlens=cu_seqlens)
+    
     assert output is not None
 
 
