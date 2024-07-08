@@ -188,7 +188,7 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    model = torch.compile(model)
+    # model = torch.compile(model)
     model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -308,7 +308,7 @@ def fit(
             targets = train_data["labels"][:, 1 : T].contiguous().long()
 
             if "cu_seqlens" in train_data:
-                cu_seqlens = train_data.get["cu_seqlens"].contiguous().int32()
+                cu_seqlens = train_data["cu_seqlens"].contiguous()
             else:
                 cu_seqlens = None
         else:
