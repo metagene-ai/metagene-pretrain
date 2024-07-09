@@ -1,0 +1,13 @@
+{
+  "model": "BPE",
+  "unk_token": "[UNK]",
+  "special_tokens": [
+    "[PAD]",
+    "[UNK]",
+    "[CLS]",
+    "[SEP]",
+    "[BOS]",
+    "[EOS]",
+    "[MASK]"
+  ]
+}
