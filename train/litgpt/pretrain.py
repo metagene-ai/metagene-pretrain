@@ -130,6 +130,7 @@ def setup(
         log_hparams = copy.deepcopy(hparams)
         log_hparams['out_dir'] = str(log_hparams['out_dir'])
         log_hparams['tokenizer_dir'] = str(log_hparams['tokenizer_dir'])
+        log_hparams['data'].local_cache = str(log_hparams['data'].local_cache)
         log_hparams['data'].download_dir = str(log_hparams['data'].download_dir)
         fabric.logger.log_hyperparams(log_hparams)
 

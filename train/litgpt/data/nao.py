@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
+import ast
+
 from streaming import StreamingDataset, StreamingDataLoader
 import streaming
 from streaming.base.stream import Stream
@@ -35,10 +37,9 @@ class NAODataset(StreamingDataset):
         self.ignore_index = ignore_index
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        example = super().__getitem__(idx)["text"]
-        encoded_prompt = self.tokenizer.encode(example, max_length=self.max_seq_length)
+        example = super().__getitem__(idx)["token_ids"]
+        encoded_prompt = torch.tensor(ast.literal_eval(example))
         labels = encoded_prompt.clone()
-
         return {"input_ids": encoded_prompt.type(torch.int64), "labels": labels.type(torch.int64)}
 
 
@@ -109,14 +110,28 @@ class NAO(DataModule):
     
     def setup(self, rank) -> None:
 
+        nao_file_list = [
+            "MJ-2024-04-04-44_2-27_S5_L001.collapsed.gz",
+            "MJ-2024-02-08-44_Ceres_1_9_S9.collapsed.gz",
+            "JR-2024-04-15-nR346G1-P001-L001.collapsed.gz",
+            "JR-2024-03-22-a-nR342-L4-G1-P001.collapsed.gz",
+            "MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz",
+        ]
+
+        stream_list = []
+        for nao_file in nao_file_list:
+            stream = Stream(
+                remote = f"s3://mgfm-bucket-01/streams/stream_{nao_file}",
+                local = f"/tmp/mds-cache/stream_{nao_file}",
+                repeat = 1,
+            )
+            stream_list.append(stream)
+
         streaming.base.util.clean_stale_shared_memory()
-        rank_id = f"rank_{rank}_id"
         self.train_dataset = NAODataset(
             batch_size=self.batch_size,
-            local=str(self.local_cache/"train"/rank_id),
-            # local=str(self.local_cache),
-            remote=str(self.download_dir),
-            split="train",
+            streams = stream_list[:-1],
+            streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
@@ -124,9 +139,8 @@ class NAO(DataModule):
 
         self.test_dataset = NAODataset(
             batch_size=self.batch_size,
-            local=str(self.local_cache/"test"/rank_id),
-            split="test",
-            remote=str(self.download_dir),
+            streams = stream_list[-1:], # use final nao_file as validation set
+            streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
