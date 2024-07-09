@@ -92,50 +92,6 @@ class SFTDataset(Dataset):
 
         return {"input_ids": encoded_prompt_and_response.type(torch.int64), "labels": labels.type(torch.int64)}
     
-
-class NAODataset(Dataset):
-    """An in-memory dataset for supervised finetuning with `input_ids` and `labels`.
-
-    Args:
-        data: A list of samples (dicts). The target/label must be stored under the key 'output' and the instruction
-            or other data can be stored under any key as long as it is compatible with the given prompt template.
-        tokenizer: The tokenizer to use. Should match the one that was used to pretrain the model.
-        max_seq_length: Truncate sequences that are longer than this value. By default, no truncation is applied.
-        mask_prompt: Whether to mask the prompt section from the label (with ``ignore_index``).
-        ignore_index: The index to use for elements to be ignored in the label.
-        transform: An optional transform to apply to the sample before it gets tokenized. Use this to rename the
-            keys in the dataset to the expected 'instruction' and 'output' keys.
-
-    Returns a dict with two keys:
-        input_ids: The encoded prompt + response
-        labels: Same as input_ids, unless ``mask_prompt=True`` in which case the 'prompt' part is replaced with
-            the ``ignore_index``.
-    """
-
-    def __init__(
-        self,
-        data: List[Dict[str, str]],
-        tokenizer: Tokenizer,
-        max_seq_length: int = -1,
-        ignore_index: int = -100,
-    ) -> None:
-        self.data = data
-        self.tokenizer = tokenizer
-        self.max_seq_length = max_seq_length
-        self.ignore_index = ignore_index
-
-    def __len__(self) -> int:
-        return len(self.data)
-
-    def __getitem__(self, idx: int) -> Dict[str, Tensor]:
-        example = self.data[idx]
-        encoded_prompt = self.tokenizer.encode(example, max_length=self.max_seq_length)
-
-        labels = encoded_prompt.clone()
-
-        return {"input_ids": encoded_prompt.type(torch.int64), "labels": labels.type(torch.int64)}
-
-
 def get_sft_collate_fn(max_seq_length: int = -1, pad_id: int = 0, ignore_index: int = -100):
     """Returns the collate function for supervised finetuning (needed in the DataLoader).
 

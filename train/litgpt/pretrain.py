@@ -73,6 +73,7 @@ def setup(
     tokenizer_dir: Optional[Path] = None,
     logger_name: Literal["wandb", "tensorboard", "csv"] = "tensorboard",
     seed: int = 42,
+    fsdp_strategy: str = "HYBRID_SHARD",
 ):
     """Pretrain a model.
 
@@ -118,7 +119,7 @@ def setup(
     )
 
     if devices > 1:
-        strategy = FSDPStrategy(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy="HYBRID_SHARD")
+        strategy = FSDPStrategy(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
     else:
         strategy = "auto"
     fabric = L.Fabric(devices=devices, strategy=strategy, precision="bf16-mixed", loggers=[logger])
@@ -129,6 +130,7 @@ def setup(
         log_hparams = copy.deepcopy(hparams)
         log_hparams['out_dir'] = str(log_hparams['out_dir'])
         log_hparams['tokenizer_dir'] = str(log_hparams['tokenizer_dir'])
+        log_hparams['data'].local_cache = str(log_hparams['data'].local_cache)
         log_hparams['data'].download_dir = str(log_hparams['data'].download_dir)
         fabric.logger.log_hyperparams(log_hparams)
 
@@ -440,7 +442,7 @@ def get_dataloaders(
     data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=block_size)
     with fabric.rank_zero_first():
         data.prepare_data()
-    data.setup()
+    data.setup(rank=fabric.local_rank)
     train_dataloader = data.train_dataloader()
     val_dataloader = data.val_dataloader()
     if isinstance(val_dataloader, DataLoader):
