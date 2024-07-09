@@ -139,7 +139,7 @@ class NAO(DataModule):
 
         self.test_dataset = NAODataset(
             batch_size=self.batch_size,
-            streams = stream_list[-1:], # use final nao_file as validation set
+            streams = stream_list[-1:], # using final stream in list as a validation set
             streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
             max_seq_length=self.max_seq_length,
@@ -162,7 +162,7 @@ class NAO(DataModule):
 
     def val_dataloader(self) -> StreamingDataLoader:
         return StreamingDataLoader(
-                self.train_dataset,
+                self.test_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,
