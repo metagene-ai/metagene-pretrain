@@ -47,10 +47,9 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
 
 
     if context_stuffing:
-        cu_seqlens = torch.randint(0, SEQ_LEN, (BATCH_SIZE,))
-        for i in range(1, BATCH_SIZE): # this ensure that cu_seqlens is cummulative, i.e, increasing for each sample in the batch
-            cu_seqlens[i] = cu_seqlens[i-1] + cu_seqlens[i]
-        cu_seqlens = cu_seqlens.to(torch.int32).to(fabric.device)
+        cu_seqlens = torch.Tensor([i*SEQ_LEN // 2 for i in range(BATCH_SIZE)]).to(torch.int32)
+        cu_seqlens = cu_seqlens.to(fabric.device)
+        print(cu_seqlens)
     else:
         cu_seqlens = None
 
