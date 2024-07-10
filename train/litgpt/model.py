@@ -12,12 +12,6 @@ from typing import Any, Optional, Tuple
 import torch
 import torch.nn as nn
 from typing_extensions import Self
-try:
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
-    FLASH_ATTN_AVAILABLE = True
-except ImportError:
-    FLASH_ATTN_AVAILABLE = False
-
 
 try:
     import xformers.ops as xops
@@ -84,7 +78,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None) -> torch.Tensor:
         T = idx.size(1)
         if self.max_seq_length < T:
             raise ValueError(f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}.")
@@ -105,7 +99,7 @@ class GPT(nn.Module):
             x = x * (self.config.n_embd**0.5)
 
         for block in self.transformer.h:
-            x = block(x, cos, sin, mask, input_pos, cu_seqlens)
+            x = block(x, cos, sin, mask, input_pos)
         x = self.transformer.ln_f(x)
         return self.lm_head(x)  # (b, t, vocab_size)
 
@@ -167,10 +161,9 @@ class Block(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
-        cu_seqlens: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         n_1 = self.norm_1(x)
-        h = self.attn(n_1, cos, sin, mask, input_pos, cu_seqlens)
+        h = self.attn(n_1, cos, sin, mask, input_pos)
         if self.config.parallel_residual:
             n_2 = n_1 if self.config.shared_attention_norm else self.norm_2(x)
             x = self.mlp(n_2) + h + x
@@ -206,7 +199,6 @@ class CausalSelfAttention(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
-        cu_seqlens: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         qkv = self.attn(x)
@@ -245,7 +237,7 @@ class CausalSelfAttention(nn.Module):
             raise NotImplementedError("FA2 with kv cache is not implemented")
         
         scale = 1.0 / math.sqrt(self.config.head_size)
-        y = self.scaled_dot_product_attention(q, k, v, scale,mask, cu_seqlens)
+        y = self.scaled_dot_product_attention(q, k, v, scale,mask)
 
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
@@ -254,29 +246,18 @@ class CausalSelfAttention(nn.Module):
         return self.proj(y)
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
 
-        if cu_seqlens is not None:
-            if self.config.attention_impl != "fa2":
-                raise ValueError(f"Context stuffing is only supported for FA2 attention, but got {self.config.attention_impl}")
-            
-            return self._fa2_context_stuffing_attention(q, k, v,scale,cu_seqlens, self.config.block_size)
-        else:
-            if self.config.attention_impl == "sdpa":
-                return self._sdpa_attention(q, k, v, scale, mask)
-            elif self.config.attention_impl == "fa2":
-                if FLASH_ATTN_AVAILABLE:
-                    return self._fa2_attention(q, k, v, scale, mask)
-                else:
-                    raise ImportError("Flash attention is not available, please install flash attention library to use it.")
-            elif self.config.attention_impl == "xformers":
-                if XFORMERS_AVAILABLE:
-                    return self._xformers_attention(q, k, v, scale, mask)
-                else:
-                    raise ImportError("Xformers is not available, please install xformers library to use it.")
+        if self.config.attention_impl == "sdpa":
+            return self._sdpa_attention(q, k, v, scale, mask)
+        elif self.config.attention_impl == "xformers":
+            if XFORMERS_AVAILABLE:
+                return self._xformers_attention(q, k, v, scale, mask)
             else:
-                raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
+                raise ImportError("Xformers is not available, please install xformers library to use it.")
+        else:
+            raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
 
     def _sdpa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         y = torch.nn.functional.scaled_dot_product_attention(
@@ -295,25 +276,6 @@ class CausalSelfAttention(nn.Module):
             scale=scale,
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
         )        
-
-    def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        q = rearrange(q, 'b n t h -> b t n h')
-        k = rearrange(k, 'b n t h -> b t n h')
-        v = rearrange(v, 'b n t h -> b t n h')
-        # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
-        return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
-
-    def _fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
-        b = q.shape[0]
-
-        q = rearrange(q, 'b n t h -> (b t) n h')
-        k = rearrange(k, 'b n t h -> (b t) n h')
-        v = rearrange(v, 'b n t h -> (b t) n h')
-        # q/k/b is [b, nh, t, hs] but fa2 expected [b * t, nh, hs]
-        y = flash_attn_varlen_func(q, k, v, cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens, max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen, causal=True, softmax_scale=scale)
-        
-        y = rearrange(y, '(b t) n h -> b t n h', b=b)
-        return y
 
     def build_kv_cache(
         self,
