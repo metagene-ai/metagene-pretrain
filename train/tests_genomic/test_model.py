@@ -40,11 +40,7 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
     SEQ_LEN = 8
     VOCAB_SIZE = 1024
 
-    batch = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE + 1, SEQ_LEN)).to(fabric.device)
-
-    input = batch[:-1]
-    target = batch[1:]
-
+    input = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, SEQ_LEN)).to(fabric.device)
 
     if context_stuffing:
         cu_seqlens = torch.Tensor([i*SEQ_LEN // 2 for i in range(BATCH_SIZE)]).to(torch.int32)
@@ -55,16 +51,10 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
 
     output = model(input, cu_seqlens=cu_seqlens)
     
-    print(output.shape)
     assert output is not None
-
-    flatten_logits = rearrange(output, "b seq vocab -> (b seq) vocab")
-    flatten_target = rearrange(target, "b seq -> (b seq)")
-
-    loss = torch.nn.functional.cross_entropy(flatten_logits, flatten_target)
-
-    assert not loss.isnan().any()
-    # print(f"loss {loss}")   
+    print(output)
+    assert not output.isnan().any()
+    
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_context_stuffing_output(config: Config, precision: str):
@@ -100,5 +90,6 @@ def test_context_stuffing_output(config: Config, precision: str):
     output_packed = model(input_packed, cu_seqlens=cu_seqlens)
 
     output_packed = output.reshape(output.shape)
+    assert not output_packed.isnan().any()
     assert torch.allclose(output, output_packed)
 
