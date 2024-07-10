@@ -274,7 +274,6 @@ class CausalSelfAttention(nn.Module):
         k = rearrange(k, 'b n t h -> b t n h')
         v = rearrange(v, 'b n t h -> b t n h')
 
-        # [B, M, H, K]
         return xops.memory_efficient_attention(
             query=q,
             key=k,
@@ -283,7 +282,6 @@ class CausalSelfAttention(nn.Module):
             attn_bias=attn_bias,
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
         )        
-        # [B, Mq, H, Kv]
 
     def build_kv_cache(
         self,
