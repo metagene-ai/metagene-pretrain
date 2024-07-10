@@ -94,7 +94,7 @@ devices: auto
 # Optional path to the tokenizer dir that was used for preprocessing the dataset. Only some data
 # module require this. (type: Optional[Path], default: null)
 # tokenizer_dir: checkpoints/genomics-llama
-tokenizer_dir: minbpe/tokenizer
+tokenizer_dir: minbpe/mgfm-1024
 
 # The name of the logger to send metrics to. (type: Literal['wandb', 'tensorboard', 'csv'], default: tensorboard)
 logger_name: wandb

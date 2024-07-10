@@ -57,6 +57,12 @@ class Tokenizer:
                 self.eos_id = (
                     self.token_to_id(eos_token) if eos_token is not None else None
                 )
+
+                # Set variables manually, if case we don't adhere to HF config format
+                self.bos_id = 4
+                self.eos_id = 5
+                self.processor.pad_token_id = 0
+
             if (
                 special_tokens_path := checkpoint_dir / "generation_config.json"
             ).is_file():

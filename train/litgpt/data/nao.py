@@ -4,6 +4,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, List
 import numpy as np
+from typing import Any, Dict, Optional, Sequence, List
+import ast
+import numpy as np
 from streaming import StreamingDataset, StreamingDataLoader
 import streaming
 from streaming.base.stream import Stream
@@ -12,8 +15,8 @@ import torch
 
 from litgpt import Tokenizer
 # TODO: potentially implement MLMDataset
-from litgpt.data import DataModule
-from litgpt.data.base import get_sft_collate_fn
+
+from litgpt.data import DataModule, get_sft_collate_fn
 
 
 
@@ -94,7 +97,6 @@ def _get_cu_seqlens(nonc_cu_seqlens: List[torch.Tensor]) -> torch.Tensor:
 
     return torch.Tensor(cu_seqlens).to(torch.int32)
 
-
 # Our current implementation roughly follows the Alpaca data module
 # TODO: implement s3 streaming dataset for NAO
 @dataclass
@@ -158,29 +160,42 @@ class NAO(DataModule):
     
     def setup(self, rank) -> None:
 
-        streaming.base.util.clean_stale_shared_memory()
+        nao_file_list = [
+            "MJ-2024-04-04-44_2-27_S5_L001.collapsed.gz",
+            "MJ-2024-02-08-44_Ceres_1_9_S9.collapsed.gz",
+            "JR-2024-04-15-nR346G1-P001-L001.collapsed.gz",
+            "JR-2024-03-22-a-nR342-L4-G1-P001.collapsed.gz",
+            "MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz",
+        ]
+        
         rank_id = f"rank_{rank}_id"
+
+        stream_list = []
+        for nao_file in nao_file_list:
+            stream = Stream(
+                remote = f"s3://mgfm-bucket-01/streams/stream_{nao_file}",
+                local = f"/tmp/mds-cache/stream_{nao_file}_{rank_id}",
+                repeat = 1,
+            )
+            stream_list.append(stream)
+
+        streaming.base.util.clean_stale_shared_memory()
         self.train_dataset = NAODataset(
             batch_size=self.batch_size,
-            local=str(self.local_cache/"train"/rank_id),
-            # local=str(self.local_cache),
-            remote=str(self.download_dir),
-            split="train",
+            streams = stream_list[:-1],
+            streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
-            max_seq_length=self.seq_length,
+            max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
-            context_stuffing=self.context_stuffing,
         )
 
         self.test_dataset = NAODataset(
             batch_size=self.batch_size,
-            local=str(self.local_cache/"test"/rank_id),
-            split="test",
-            remote=str(self.download_dir),
+            streams = stream_list[-1:], # using final stream in list as a validation set
+            streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
-            max_seq_length=self.seq_length,
+            max_seq_length=self.max_seq_length,
             ignore_index=self.ignore_index,
-            context_stuffing=self.context_stuffing,
         )
 
     def get_collate_fn(self):
@@ -192,6 +207,8 @@ class NAO(DataModule):
             )
         else:
             return get_context_stuffing_collate_fn(max_seq_length=self.seq_length)
+
+
     def train_dataloader(self) -> StreamingDataLoader:
         return StreamingDataLoader(
             self.train_dataset,
@@ -204,7 +221,7 @@ class NAO(DataModule):
 
     def val_dataloader(self) -> StreamingDataLoader:
         return StreamingDataLoader(
-                self.train_dataset,
+                self.test_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,
