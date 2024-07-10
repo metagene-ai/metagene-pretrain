@@ -185,7 +185,7 @@ class NAO(DataModule):
             streams = stream_list[:-1],
             streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
-            max_seq_length=self.max_seq_length,
+            max_seq_length=self.seq_length,
             ignore_index=self.ignore_index,
         )
 
@@ -194,7 +194,7 @@ class NAO(DataModule):
             streams = stream_list[-1:], # using final stream in list as a validation set
             streaming_kwargs = {"shuffle": True},
             tokenizer=self.tokenizer,
-            max_seq_length=self.max_seq_length,
+            max_seq_length=self.seq_length,
             ignore_index=self.ignore_index,
         )
 
