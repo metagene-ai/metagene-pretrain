@@ -202,7 +202,6 @@ class CausalSelfAttention(nn.Module):
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         qkv = self.attn(x)
-
         # assemble into a number of query groups to support MHA, MQA and GQA together (see `config.n_query_groups`)
         q_per_kv = self.config.n_head // self.config.n_query_groups
         total_qkv = q_per_kv + 2  # each group has 1+ queries, 1 key, and 1 value
@@ -238,7 +237,7 @@ class CausalSelfAttention(nn.Module):
         
         scale = 1.0 / math.sqrt(self.config.head_size)
         y = self.scaled_dot_product_attention(q, k, v, scale,mask)
-
+        print(y.shape)
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
     
@@ -266,16 +265,25 @@ class CausalSelfAttention(nn.Module):
         return y.transpose(1, 2)
 
     def _xformers_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if mask is not None:
+            raise ValueError("custom mask not supporting with xformers")
+
+        attn_bias = xops.LowerTriangularMask()
+
         q = rearrange(q, 'b n t h -> b t n h')
         k = rearrange(k, 'b n t h -> b t n h')
         v = rearrange(v, 'b n t h -> b t n h')
+
+        # [B, M, H, K]
         return xops.memory_efficient_attention(
             query=q,
             key=k,
             value=v,
             scale=scale,
+            attn_bias=attn_bias,
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
         )        
+        # [B, Mq, H, Kv]
 
     def build_kv_cache(
         self,

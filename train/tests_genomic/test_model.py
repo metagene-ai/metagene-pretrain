@@ -83,7 +83,12 @@ def test_gpt_output(config: Config, precision: str):
 
     ### TESTING
     assert output_sdpa.shape == output_xformers.shape
-    torch.testing.assert_close(output_sdpa, output_xformers)
+    
+    ### xformers has a higher tolerance
+    atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
+    rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
+    torch.testing.assert_close(output_sdpa, output_xformers, atol=atol, rtol=rtol)
+
 
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
