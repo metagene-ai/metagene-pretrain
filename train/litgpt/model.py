@@ -274,11 +274,16 @@ class CausalSelfAttention(nn.Module):
 
     def _fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
+        b = q.shape[0]
+
         q = rearrange(q, 'b n t h -> (b t) n h')
         k = rearrange(k, 'b n t h -> (b t) n h')
         v = rearrange(v, 'b n t h -> (b t) n h')
         # q/k/b is [b, nh, t, hs] but fa2 expected [b * t, nh, hs]
-        return flash_attn_varlen_func(q, k, v, cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens, max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen, causal=True, softmax_scale=scale)
+        y = flash_attn_varlen_func(q, k, v, cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens, max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen, causal=True, softmax_scale=scale)
+        
+        y = rearrange(y, '(b t) n h -> b t n h', b=b)
+        return y
 
     def build_kv_cache(
         self,
