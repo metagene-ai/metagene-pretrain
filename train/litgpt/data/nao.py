@@ -44,7 +44,7 @@ class NAODataset(StreamingDataset):
         self.rng = np.random.RandomState(seed=seed)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        example = super().__getitem__(idx)["text"]
+        example = super().__getitem__(idx)["token_ids"]
         toks = self.tokenizer.encode(example, max_length=self.max_seq_length)
         if not self.context_stuffing:
             labels = toks.clone()
@@ -187,6 +187,7 @@ class NAO(DataModule):
             tokenizer=self.tokenizer,
             max_seq_length=self.seq_length,
             ignore_index=self.ignore_index,
+            context_stuffing=self.context_stuffing,
         )
 
         self.test_dataset = NAODataset(
@@ -196,6 +197,7 @@ class NAO(DataModule):
             tokenizer=self.tokenizer,
             max_seq_length=self.seq_length,
             ignore_index=self.ignore_index,
+            context_stuffing=self.context_stuffing,
         )
 
     def get_collate_fn(self):
