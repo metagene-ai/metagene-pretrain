@@ -16,8 +16,6 @@ try:
     from flash_attn import flash_attn_func, flash_attn_varlen_func
     FLASH_ATTN_AVAILABLE = True
 except ImportError:
-    flash_attn_func = None
-    flash_attn_varlen_func = None
     FLASH_ATTN_AVAILABLE = False
 
 
@@ -25,7 +23,6 @@ try:
     import xformers.ops as xops
     XFORMERS_AVAILABLE = True
 except ImportError:
-    xops = None
     XFORMERS_AVAILABLE = False
 
 from einops import rearrange
@@ -252,6 +249,7 @@ class CausalSelfAttention(nn.Module):
 
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
+    
         # output projection
         return self.proj(y)
 
@@ -287,6 +285,9 @@ class CausalSelfAttention(nn.Module):
         return y.transpose(1, 2)
 
     def _xformers_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        q = rearrange(q, 'b n t h -> b t n h')
+        k = rearrange(k, 'b n t h -> b t n h')
+        v = rearrange(v, 'b n t h -> b t n h')
         return xops.memory_efficient_attention(
             query=q,
             key=k,

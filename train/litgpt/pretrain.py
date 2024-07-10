@@ -75,7 +75,7 @@ def setup(
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = False,
-    use_fa2: bool = False,
+    attention_impl: Literal["sdpa", "fa2", "xformers"] = "sdpa",
 ):
     """Pretrain a model.
 
@@ -111,7 +111,7 @@ def setup(
     elif model_config is None and model_name is None:
         model_name = "tiny-llama-1.1b"
     config = Config.from_name(model_name) if model_config is None else model_config
-    config.attention_impl = "fa2" if use_fa2 else "sdpa"
+    config.attention_impl = attention_impl
     devices = parse_devices(devices)
     out_dir = init_out_dir(out_dir)
     # in case the dataset requires the Tokenizer
