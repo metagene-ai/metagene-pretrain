@@ -16,7 +16,7 @@ def config() -> Config:
         vocab_size=1024,
     )
 
-@pytest.mark.parametrize("attention_impl", ["sdpa", "fa2"])
+@pytest.mark.parametrize("attention_impl", ["sdpa", "fa2","xformers"])
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_gpt(config: Config, attention_impl: str, precision: str):
     config.attention_impl = attention_impl
@@ -45,14 +45,12 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
     if context_stuffing:
         cu_seqlens = torch.Tensor([i*SEQ_LEN // 2 for i in range(BATCH_SIZE)]).to(torch.int32)
         cu_seqlens = cu_seqlens.to(fabric.device)
-        print(cu_seqlens)
     else:
         cu_seqlens = None
 
     output = model(input, cu_seqlens=cu_seqlens)
     
     assert output is not None
-    print(output)
     assert not output.isnan().any()
     
 

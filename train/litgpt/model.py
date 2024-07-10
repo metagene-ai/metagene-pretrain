@@ -12,7 +12,22 @@ from typing import Any, Optional, Tuple
 import torch
 import torch.nn as nn
 from typing_extensions import Self
-from flash_attn import flash_attn_func, flash_attn_varlen_func
+try:
+    from flash_attn import flash_attn_func, flash_attn_varlen_func
+    FLASH_ATTN_AVAILABLE = True
+except ImportError:
+    flash_attn_func = None
+    flash_attn_varlen_func = None
+    FLASH_ATTN_AVAILABLE = False
+
+
+try:
+    import xformers.ops as xops
+    XFORMERS_AVAILABLE = True
+except ImportError:
+    xops = None
+    XFORMERS_AVAILABLE = False
+
 from einops import rearrange
 
 from litgpt.config import Config
@@ -232,8 +247,8 @@ class CausalSelfAttention(nn.Module):
         if self.kv_cache is not None and self.config.attention_impl == "fa2":
             raise NotImplementedError("FA2 with kv cache is not implemented")
         
-
-        y = self.scaled_dot_product_attention(q, k, v, mask, cu_seqlens)
+        scale = 1.0 / math.sqrt(self.config.head_size)
+        y = self.scaled_dot_product_attention(q, k, v, scale,mask, cu_seqlens)
 
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
@@ -241,39 +256,53 @@ class CausalSelfAttention(nn.Module):
         return self.proj(y)
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None, cu_seqlens: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
 
         if cu_seqlens is not None:
             if self.config.attention_impl != "fa2":
                 raise ValueError(f"Context stuffing is only supported for FA2 attention, but got {self.config.attention_impl}")
             
-            return self._fa2_context_stuffing_attention(q, k, v,cu_seqlens, self.config.block_size)
+            return self._fa2_context_stuffing_attention(q, k, v,scale,cu_seqlens, self.config.block_size)
         else:
             if self.config.attention_impl == "sdpa":
-                return self._sdpa_attention(q, k, v, mask)
+                return self._sdpa_attention(q, k, v, scale, mask)
             elif self.config.attention_impl == "fa2":
-                return self._fa2_attention(q, k, v, mask)
+                if FLASH_ATTN_AVAILABLE:
+                    return self._fa2_attention(q, k, v, scale, mask)
+                else:
+                    raise ImportError("Flash attention is not available, please install flash attention library to use it.")
+            elif self.config.attention_impl == "xformers":
+                if XFORMERS_AVAILABLE:
+                    return self._xformers_attention(q, k, v, scale, mask)
+                else:
+                    raise ImportError("Xformers is not available, please install xformers library to use it.")
             else:
                 raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
 
-    def _sdpa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        scale = 1.0 / math.sqrt(self.config.head_size)
+    def _sdpa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         y = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, dropout_p=0.0, scale=scale, is_causal=mask is None
         )
         return y.transpose(1, 2)
-    
-    def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        scale = 1.0 / math.sqrt(self.config.head_size)
+
+    def _xformers_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        return xops.memory_efficient_attention(
+            query=q,
+            key=k,
+            value=v,
+            scale=scale,
+            op=xops.MemoryEfficientAttentionFlashAttentionOp,
+        )        
+
+    def _fa2_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         q = rearrange(q, 'b n t h -> b t n h')
         k = rearrange(k, 'b n t h -> b t n h')
         v = rearrange(v, 'b n t h -> b t n h')
         # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)
 
-    def _fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
-        scale = 1.0 / math.sqrt(self.config.head_size)
+    def _fa2_context_stuffing_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, cu_seqlens: torch.Tensor, max_seqlen: int) -> torch.Tensor:
         b = q.shape[0]
 
         q = rearrange(q, 'b n t h -> (b t) n h')

@@ -47,7 +47,8 @@ all = [
     "huggingface_hub[hf_transfer]>=0.21.0",  # download
     "transformers", #tokenizer
     "wandb",
-    "mosaicml-streaming"
+    "mosaicml-streaming",
+    "xformers"
 ]
 
 [build-system]
