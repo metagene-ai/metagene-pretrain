@@ -1,3 +1,4 @@
+from einops import rearrange
 import pytest
 import torch
 
@@ -39,7 +40,11 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
     SEQ_LEN = 8
     VOCAB_SIZE = 1024
 
-    input = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, SEQ_LEN)).to(fabric.device)
+    batch = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE + 1, SEQ_LEN)).to(fabric.device)
+
+    input = batch[:-1]
+    target = batch[1:]
+
 
     if context_stuffing:
         cu_seqlens = torch.randint(0, SEQ_LEN, (BATCH_SIZE,))
@@ -51,7 +56,16 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
 
     output = model(input, cu_seqlens=cu_seqlens)
     
+    print(output.shape)
     assert output is not None
+
+    flatten_logits = rearrange(output, "b seq vocab -> (b seq) vocab")
+    flatten_target = rearrange(target, "b seq -> (b seq)")
+
+    loss = torch.nn.functional.cross_entropy(flatten_logits, flatten_target)
+
+    assert not loss.isnan().any()
+    # print(f"loss {loss}")   
 
 
 
