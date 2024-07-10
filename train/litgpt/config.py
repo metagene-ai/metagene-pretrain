@@ -1479,10 +1479,29 @@ genomics_llama = [
         mlp_class_name="LLaMAMLP",
         intermediate_size=6144, # 4096
         n_query_groups=4,
+    ),
+    dict(
+        name="genomics-llama-mini",
+        block_size=512,
+        vocab_size=1025,
+        padding_multiple=64,
+        n_layer=6,
+        n_head=4,
+        n_embd=128, # 1024
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",  # original TinyLlama uses FusedRMSNorm
+        norm_eps=1e-5,
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=512, # 4096
+        n_query_groups=4,
     )
 ]
 
 configs.append(deepcopy(genomics_llama[0]))
+configs.append(deepcopy(genomics_llama[1]))
+
 
 
 ##########################
