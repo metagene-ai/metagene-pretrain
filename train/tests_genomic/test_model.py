@@ -46,4 +46,35 @@ def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
     
     assert output is not None
     assert not output.isnan().any()
+
+@pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
+def test_attn_output(config: Config, precision: str):
+    """
+    in this test we compare the output of the GPT with sdpa and xformers
+    """
     
+    fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
+    fabric.launch()
+
+
+    model = GPT(config)
+    model = fabric.setup(model)
+
+    BATCH_SIZE = 16
+    SEQ_LEN = 8
+    VOCAB_SIZE = 1024
+
+    input = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, SEQ_LEN)).to(fabric.device)
+
+    ###  SDPA 
+    config.attention_impl = "sdpa"
+    output_sdpa = model(input)
+    
+    ### XFORMERS 
+    config.attention_impl = "xformers"
+    output_xformers = model(input)
+
+    ### TESTING
+    assert output_sdpa.shape == output_xformers.shape
+    torch.testing.assert_close(output_sdpa, output_xformers)
+
