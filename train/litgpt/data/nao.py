@@ -117,12 +117,14 @@ class NAO(DataModule):
             "JR-2024-03-22-a-nR342-L4-G1-P001.collapsed.gz",
             "MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz",
         ]
+        
+        rank_id = f"rank_{rank}_id"
 
         stream_list = []
         for nao_file in nao_file_list:
             stream = Stream(
                 remote = f"s3://mgfm-bucket-01/streams/stream_{nao_file}",
-                local = f"/tmp/mds-cache/stream_{nao_file}",
+                local = f"/tmp/mds-cache/stream_{nao_file}_{rank_id}",
                 repeat = 1,
             )
             stream_list.append(stream)
