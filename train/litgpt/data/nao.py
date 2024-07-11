@@ -45,7 +45,7 @@ class NAODataset(StreamingDataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         example = super().__getitem__(idx)["token_ids"]
-        toks = self.tokenizer.encode(example, max_length=self.max_seq_length)
+        toks = torch.tensor(ast.literal_eval(example))
         if not self.context_stuffing:
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
