@@ -143,28 +143,27 @@ def test_context_stuffing_attn(config: Config, precision: str):
 
     SEQ_LEN = 8
 
+    emb = torch.nn.Embedding(10, config.n_embd).to(fabric.device)
+
+    pad_id = 0
+    input_raw = torch.Tensor([[2, 1, 4, 8, pad_id, pad_id, pad_id, pad_id], [1, 4, 2, 7, pad_id, pad_id, pad_id, pad_id]]).long().to(fabric.device)
+    input = emb(input_raw)
+
+    input_stuff_raw = torch.Tensor([[2, 1, 4, 8, 1, 4, 2, 7]]).long().to(fabric.device)
+    seqlens = [4, 4]
+    input_stuff = emb(input_stuff_raw)
+
 
     cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
-    input = torch.rand(2, SEQ_LEN, config.n_embd).to(fabric.device) # [[0,1,2], [1,3, 2]]
     
-
-
     ### batch 
     output_xformers = model(input, cos, sin)
-
-    ### context stuffed
-    input_context_stuffed = rearrange(input, "b s h -> 1 (b s) h") # [[0, 1, 2, 1, 3, 2]]
-    assert input_context_stuffed.shape == (1, 2*SEQ_LEN, config.n_embd)
-    seqlens = [SEQ_LEN, SEQ_LEN]
-
     
-    cos, sin = get_cos_and_sin_attn(config, 2*SEQ_LEN, fabric.device)
-    output_xformers_context_stuffed = model(input_context_stuffed, cos, sin, seqlens=seqlens)
+    output_xformers = output_xformers[:, :4, :] # remove padding token
 
-
+    output_xformers_context_stuffed = model(input_stuff, cos, sin, seqlens=seqlens)
+    
     output_xformers_context_stuffed = rearrange(output_xformers_context_stuffed, "1 (b s) h -> b s h", b = 2)
-
-
 
     ### TESTING
     assert output_xformers.shape == output_xformers_context_stuffed .shape
