@@ -7,7 +7,7 @@ https://github.com/EleutherAI/gpt-neox/tree/main/megatron/model.
 """
 
 import math
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -199,6 +199,7 @@ class CausalSelfAttention(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
+        seqlens: Optional[Iterable[int]] = None,
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         qkv = self.attn(x)
@@ -236,7 +237,7 @@ class CausalSelfAttention(nn.Module):
             raise NotImplementedError("FA2 with kv cache is not implemented")
         
         scale = 1.0 / math.sqrt(self.config.head_size)
-        y = self.scaled_dot_product_attention(q, k, v, scale,mask)
+        y = self.scaled_dot_product_attention(q, k, v, scale,mask, seqlens)
         print(y.shape)
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
@@ -245,8 +246,16 @@ class CausalSelfAttention(nn.Module):
         return self.proj(y)
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None, seqlens: Optional[Iterable[int]] = None
     ) -> torch.Tensor:
+
+        if seqlens is not None:
+            if self.config.attention_impl != "xformers":
+                raise ValueError("context stuffing is only supported with xformers")
+            if mask is not None:
+                raise ValueError("context stuffing is not compatible with custom mask")
+            
+            self._xformers_attention_with_seqlens(q, k, v, scale, seqlens)
 
         if self.config.attention_impl == "sdpa":
             return self._sdpa_attention(q, k, v, scale, mask)
@@ -281,7 +290,29 @@ class CausalSelfAttention(nn.Module):
             scale=scale,
             attn_bias=attn_bias,
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
-        )        
+        )      
+
+    def _xformers_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
+        attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(seqlens)
+
+        batch_size = q.shape[0]
+
+        q = rearrange(q, 'b n t h -> 1 (b t) n h')
+        k = rearrange(k, 'b n t h -> 1 (b t) n h')
+        v = rearrange(v, 'b n t h -> 1 (b t) n h')
+
+        y =  xops.memory_efficient_attention(
+            query=q,
+            key=k,
+            value=v,
+            scale=scale,
+            attn_bias=attn_bias,
+            op=xops.MemoryEfficientAttentionFlashAttentionOp,
+        )   
+
+        y = rearrange(y, 'i (b t) n h -> (i b) t n h', b=batch_size) # i = 1
+        return y
+    
 
     def build_kv_cache(
         self,

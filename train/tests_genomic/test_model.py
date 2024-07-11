@@ -1,3 +1,4 @@
+from typing import Tuple
 from einops import rearrange
 import pytest
 import torch
@@ -29,13 +30,7 @@ def test_gpt(config: Config, attention_impl: str, precision: str):
     config.attention_impl = attention_impl
     _test_gpt(config, precision)
 
-# @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
-# def test_context_stuffing(config: Config, precision: str):
-#     config.attention_impl = "xformers"
-#     _test_gpt(config, precision, context_stuffing=True)
-
-
-def _test_gpt(config: Config, precision: str, context_stuffing: bool = False):
+def _test_gpt(config: Config, precision: str):
 
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
@@ -91,6 +86,18 @@ def test_gpt_output(config: Config, precision: str):
 
 
 
+def get_cos_and_sin_attn(config: Config, seq_len: int, device)-> Tuple[torch.Tensor, torch.Tensor]:
+    cos,sin =  build_rope_cache(
+        seq_len=seq_len,
+        n_elem=config.rope_n_elem,
+        device=device,
+        condense_ratio=config.rope_condense_ratio,
+        base=config.rope_base,
+    )
+    cos = cos[:seq_len]
+    sin = sin[:seq_len] 
+    return cos, sin
+
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_attn_output(config: Config, precision: str):
     """
@@ -107,17 +114,7 @@ def test_attn_output(config: Config, precision: str):
     SEQ_LEN = 8
 
     input = torch.rand(BATCH_SIZE, SEQ_LEN, config.n_embd).to(fabric.device)
-        
-    cos, sin = build_rope_cache(
-            seq_len=SEQ_LEN,
-            n_elem=config.rope_n_elem,
-            device=fabric.device,
-            condense_ratio=config.rope_condense_ratio,
-            base=config.rope_base,
-        )
-
-    cos = cos[:SEQ_LEN]
-    sin = sin[:SEQ_LEN]    
+    cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
     
     ###  SDPA 
     config.attention_impl = "sdpa"
@@ -135,3 +132,44 @@ def test_attn_output(config: Config, precision: str):
     rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
     torch.testing.assert_close(output_sdpa, output_xformers, atol=atol, rtol=rtol)
 
+@pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
+def test_context_stuffing_attn(config: Config, precision: str):
+    fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
+    fabric.launch()
+
+    config.attention_impl = "xformers"
+    model = CausalSelfAttention(config)
+    model = fabric.setup(model)
+
+    SEQ_LEN = 8
+
+
+    cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
+    input = torch.rand(2, SEQ_LEN, config.n_embd).to(fabric.device) # [[0,1,2], [1,3, 2]]
+    
+
+
+    ### batch 
+    output_xformers = model(input, cos, sin)
+
+    ### context stuffed
+    input_context_stuffed = rearrange(input, "b s h -> 1 (b s) h") # [[0, 1, 2, 1, 3, 2]]
+    assert input_context_stuffed.shape == (1, 2*SEQ_LEN, config.n_embd)
+    seqlens = [SEQ_LEN, SEQ_LEN]
+
+    
+    cos, sin = get_cos_and_sin_attn(config, 2*SEQ_LEN, fabric.device)
+    output_xformers_context_stuffed = model(input_context_stuffed, cos, sin, seqlens=seqlens)
+
+
+    output_xformers_context_stuffed = rearrange(output_xformers_context_stuffed, "1 (b s) h -> b s h", b = 2)
+
+
+
+    ### TESTING
+    assert output_xformers.shape == output_xformers_context_stuffed .shape
+
+    ### xformers has a higher tolerance
+    atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
+    rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
+    torch.testing.assert_close(output_xformers, output_xformers_context_stuffed, atol=atol, rtol=rtol)
