@@ -76,6 +76,7 @@ def setup(
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = False,
     attention_impl: Literal["sdpa", "fa2", "xformers"] = "sdpa",
+    max_seq_length_data: int = 128
 ):
     """Pretrain a model.
 
@@ -151,6 +152,7 @@ def setup(
         tokenizer,
         train,
         eval,
+        max_seq_length_data,
     )
 
 
@@ -167,6 +169,7 @@ def main(
     tokenizer: Optional[Tokenizer],
     train: TrainArgs,
     eval: EvalArgs,
+    max_seq_length_data: int,
 ) -> None:
     validate_args(train, eval, initial_checkpoint_dir, resume)
 
@@ -200,7 +203,7 @@ def main(
     )
     optimizer = fabric.setup_optimizers(optimizer)
 
-    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, model.max_seq_length)
+    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, max_seq_length_data)
     dataloaders = [train_dataloader] + val_dataloaders
     print(f"Train dataset: {len(data.train_dataset)} samples | {len(train_dataloader)} batches")
     for i, val_dataloader in enumerate(val_dataloaders):
@@ -446,9 +449,12 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
 
 
 def get_dataloaders(
-    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, block_size: int
+    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, max_seq_length: int
 ) -> Tuple[DataLoader, List[DataLoader]]:
-    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=block_size)
+    """
+    here max_seq_length rules the dataloader but does not impact the model.
+    """
+    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length)
     with fabric.rank_zero_first():
         data.prepare_data()
     data.setup(rank=fabric.local_rank)
