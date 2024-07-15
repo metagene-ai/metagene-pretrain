@@ -218,3 +218,44 @@ def test_context_stuffing_attn_2(config: Config, precision: str):
     atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
     rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
     torch.testing.assert_close(output_left, output_right, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
+def test_context_stuffing_backward(config: Config, precision: str):
+    fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
+    fabric.launch()
+
+    config.attention_impl = "xformers"
+    model = GPT(config)
+    model = fabric.setup(model)
+
+
+    BATCH_SIZE = 16
+    SEQ_LEN = 8
+    VOCAB_SIZE = 1024
+    ITER = 5
+
+
+    batch = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE+1, SEQ_LEN)).to(fabric.device)
+
+    input = batch[:-1]
+    target = batch[1:]
+
+    seqlens = [SEQ_LEN//2 for _ in range(2*BATCH_SIZE)]
+
+
+    for _ in range(ITER):
+
+        output = model(input, seqlens=seqlens)
+
+        assert output is not None
+        assert not output.isnan().any()
+
+        flatten_logits = rearrange(output, "b seq vocab -> (b seq) vocab")
+        flatten_target = rearrange(target, "b seq -> (b seq)")
+
+        loss = torch.nn.functional.cross_entropy(flatten_logits, flatten_target)
+        fabric.backward(loss)
+
+        assert not loss.isnan().any()
+
