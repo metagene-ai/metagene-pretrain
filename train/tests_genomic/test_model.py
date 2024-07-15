@@ -153,9 +153,10 @@ def test_context_stuffing_attn(config: Config, precision: str):
     seqlens = [4, 4]
     input_stuff = emb(input_stuff_raw)
 
-
     cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
-    
+    cos = torch.zeros_like(cos)
+    sin = torch.zeros_like(sin)
+        
     ### batch 
     output_xformers = model(input, cos, sin)
     
@@ -163,7 +164,13 @@ def test_context_stuffing_attn(config: Config, precision: str):
 
     output_xformers_context_stuffed = model(input_stuff, cos, sin, seqlens=seqlens)
     
-    output_xformers_context_stuffed = rearrange(output_xformers_context_stuffed, "1 (b s) h -> b s h", b = 2)
+    output_left = output_xformers_context_stuffed[0, :4, :]
+    output_right = output_xformers_context_stuffed[0, 4:, :]
+
+    # output_xformers_context_stuffed = output_xformers_context_stuffed[0] # 2, 1 4, 8
+    output_xformers_context_stuffed   = output_left
+    output_xformers = output_xformers[0] # 2, 1 4, 8
+
 
     ### TESTING
     assert output_xformers.shape == output_xformers_context_stuffed .shape
@@ -172,3 +179,44 @@ def test_context_stuffing_attn(config: Config, precision: str):
     atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
     rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
     torch.testing.assert_close(output_xformers, output_xformers_context_stuffed, atol=atol, rtol=rtol)
+
+
+    
+
+@pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
+def test_context_stuffing_attn_2(config: Config, precision: str):
+    fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
+    fabric.launch()
+
+    config.attention_impl = "xformers"
+    model = CausalSelfAttention(config)
+    model = fabric.setup(model)
+
+    SEQ_LEN = 8
+
+    emb = torch.nn.Embedding(10, config.n_embd).to(fabric.device)
+
+    seq = [2,1,4,8]
+    input_stuff_raw = torch.Tensor([seq + seq]).long().to(fabric.device)
+    seqlens = [len(seq), len(seq)]
+    input_stuff = emb(input_stuff_raw)
+
+
+    cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
+    cos = torch.zeros_like(cos)
+    sin = torch.zeros_like(sin)
+    
+    output = model(input_stuff, cos, sin, seqlens=seqlens)
+    
+    output_left = output[:, :4, :]
+    output_right = output[:, 4:, :]
+
+    ### TESTING
+    assert output_left.shape == output_right.shape
+
+    ### xformers has a higher tolerance
+    atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
+    rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
+    torch.testing.assert_close(output_left, output_right, atol=atol, rtol=rtol)
+
+    

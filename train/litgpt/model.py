@@ -293,7 +293,7 @@ class CausalSelfAttention(nn.Module):
         )      
 
     def _xformers_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
-        attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(seqlens)
+        attn_bias = xops.fmha.attn_bias.BlockDiagonalCausalMask.from_seqlens(seqlens)
 
         batch_size = q.shape[0]
 
