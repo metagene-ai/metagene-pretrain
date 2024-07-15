@@ -7,6 +7,7 @@ from litgpt.model import CausalSelfAttention, Config, build_rope_cache
 from litgpt.model import GPT
 from lightning.fabric import Fabric
 from xformers.ops.fmha.common import AttentionFwOpBase
+import xformers.ops as xops
 
 @pytest.fixture
 def config() -> Config:
@@ -134,6 +135,14 @@ def test_attn_output(config: Config, precision: str):
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_context_stuffing_attn(config: Config, precision: str):
+    """
+    In this test we compare normal pad attention with stuffing.
+
+    input is [[2, 1, 4, 8, PAD, PAD, PAD, PAD], [1, 4, 2, 7, PAD, PAD, PAD, PAD]]
+    for padded input and [[2, 1, 4, 8, 1, 4, 2, 7]] for stuffed input
+
+    we then compare the output of the two and should be the same.
+    """
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
 
@@ -162,29 +171,24 @@ def test_context_stuffing_attn(config: Config, precision: str):
     
     output_xformers = output_xformers[:, :4, :] # remove padding token
 
-    output_xformers_context_stuffed = model(input_stuff, cos, sin, seqlens=seqlens)
-    
-    output_left = output_xformers_context_stuffed[0, :4, :]
-    output_right = output_xformers_context_stuffed[0, 4:, :]
-
-    # output_xformers_context_stuffed = output_xformers_context_stuffed[0] # 2, 1 4, 8
-    output_xformers_context_stuffed   = output_left
-    output_xformers = output_xformers[0] # 2, 1 4, 8
-
+    output_xformers_stuff = model(input_stuff, cos, sin, seqlens=seqlens)
+    output_xformers_stuff = output_xformers_stuff.reshape(2,4,config.n_embd)
 
     ### TESTING
-    assert output_xformers.shape == output_xformers_context_stuffed .shape
+    assert output_xformers.shape == output_xformers_stuff.shape
 
     ### xformers has a higher tolerance
     atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
     rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
-    torch.testing.assert_close(output_xformers, output_xformers_context_stuffed, atol=atol, rtol=rtol)
+    torch.testing.assert_close(output_xformers, output_xformers_stuff, atol=atol, rtol=rtol)
 
-
-    
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_context_stuffing_attn_2(config: Config, precision: str):
+    """
+    this test is slightu different from the one above, it tests 
+    that passing two time the same input in a stuff way yield the same results.
+    """
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
 
@@ -218,5 +222,3 @@ def test_context_stuffing_attn_2(config: Config, precision: str):
     atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
     rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
     torch.testing.assert_close(output_left, output_right, atol=atol, rtol=rtol)
-
-    

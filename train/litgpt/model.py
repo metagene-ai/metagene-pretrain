@@ -238,10 +238,8 @@ class CausalSelfAttention(nn.Module):
         
         scale = 1.0 / math.sqrt(self.config.head_size)
         y = self.scaled_dot_product_attention(q, k, v, scale,mask, seqlens)
-        print(y.shape)
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
-    
         # output projection
         return self.proj(y)
 
@@ -255,7 +253,7 @@ class CausalSelfAttention(nn.Module):
             if mask is not None:
                 raise ValueError("context stuffing is not compatible with custom mask")
             
-            self._xformers_attention_with_seqlens(q, k, v, scale, seqlens)
+            return self._xformers_attention_with_seqlens(q, k, v, scale, seqlens)
 
         if self.config.attention_impl == "sdpa":
             return self._sdpa_attention(q, k, v, scale, mask)
@@ -293,15 +291,14 @@ class CausalSelfAttention(nn.Module):
         )      
 
     def _xformers_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
-        attn_bias = xops.fmha.attn_bias.BlockDiagonalCausalMask.from_seqlens(seqlens)
-
-        batch_size = q.shape[0]
+        attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(q_seqlen=seqlens)
+        attn_bias = attn_bias.make_causal()
 
         q = rearrange(q, 'b n t h -> 1 (b t) n h')
         k = rearrange(k, 'b n t h -> 1 (b t) n h')
         v = rearrange(v, 'b n t h -> 1 (b t) n h')
 
-        y =  xops.memory_efficient_attention(
+        return xops.memory_efficient_attention(
             query=q,
             key=k,
             value=v,
@@ -309,9 +306,6 @@ class CausalSelfAttention(nn.Module):
             attn_bias=attn_bias,
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
         )   
-
-        y = rearrange(y, 'i (b t) n h -> (i b) t n h', b=batch_size) # i = 1
-        return y
     
 
     def build_kv_cache(
