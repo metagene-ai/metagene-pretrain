@@ -163,8 +163,6 @@ def test_context_stuffing_attn(config: Config, precision: str):
     input_stuff = emb(input_stuff_raw)
 
     cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
-    cos = torch.zeros_like(cos)
-    sin = torch.zeros_like(sin)
         
     ### batch 
     output_xformers = model(input, cos, sin)
@@ -207,9 +205,7 @@ def test_context_stuffing_attn_2(config: Config, precision: str):
 
 
     cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
-    cos = torch.zeros_like(cos)
-    sin = torch.zeros_like(sin)
-    
+
     output = model(input_stuff, cos, sin, seqlens=seqlens)
     
     output_left = output[:, :4, :]
