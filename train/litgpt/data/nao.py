@@ -54,10 +54,13 @@ class NAODataset(StreamingDataset):
             remaining_toks_cnt = self.max_seq_length - len(toks)
             seqlens.append(len(toks))
             while remaining_toks_cnt > 0:
+                new_entry = super().__getitem__(self.batch_size + idx)["token_ids"]
+                #todo(sami): discuss is batch_size + idx is reasonable or it it should be more random
+                new_toks = torch.tensor(ast.literal_eval(new_entry))
                 s_idx = self.rng.randint(
-                    low=0, high=max(1, len(toks) - remaining_toks_cnt + 1)
+                    low=0, high=max(1, len(new_toks) - remaining_toks_cnt + 1)
                 )
-                additional_toks = toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
+                additional_toks = new_toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
                 seqlens.append(len(additional_toks))
                 toks = torch.cat([toks, additional_toks], dim=0)
                 remaining_toks_cnt = self.max_seq_length - len(toks)
