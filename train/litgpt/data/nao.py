@@ -84,18 +84,8 @@ def _context_stuffing_collate_fn(samples: List[Dict[str, torch.Tensor]], max_seq
         if max_seq_length > 0:
             batched[key] = batched[key][:, :max_seq_length]
 
-    nonc_cu_seqlens = [seqlen for sample in samples for seqlen in sample["seqlens"]]
-    batched["cu_seqlens"] = _get_cu_seqlens(nonc_cu_seqlens=nonc_cu_seqlens)
+    batched["seqlens"] = [x for sample in samples for x in sample["seqlens"]]
     return batched
-
-def _get_cu_seqlens(nonc_cu_seqlens: List[torch.Tensor]) -> torch.Tensor:
-    cu_seqlens = []
-    running_sum = 0
-    for seqlen in nonc_cu_seqlens:
-        cu_seqlens.append(seqlen + running_sum)
-        running_sum += seqlen
-
-    return torch.Tensor(cu_seqlens).to(torch.int32)
 
 # Our current implementation roughly follows the Alpaca data module
 # TODO: implement s3 streaming dataset for NAO

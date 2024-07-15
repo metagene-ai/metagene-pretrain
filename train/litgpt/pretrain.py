@@ -308,18 +308,15 @@ def fit(
             input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
             targets = train_data["labels"][:, 1 : T].contiguous().long()
 
-            if "cu_seqlens" in train_data:
-                cu_seqlens = train_data["cu_seqlens"].contiguous()
-            else:
-                cu_seqlens = None
+            seqlens = train_data.get("seqlens", None)
         else:
             input_ids = train_data[:, 0 : model.max_seq_length].contiguous().long()
             targets = train_data[:, 1 : (model.max_seq_length + 1)].contiguous().long()
-            cu_seqlens = None
+            seqlens = None
         
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
-            logits = model(input_ids, cu_seqlens=cu_seqlens)
+            logits = model(input_ids, seqlens=seqlens)
             if train.z_loss:
                 ce_loss, z_loss = cross_entropy_max_z_loss(logits, targets, train.z_loss_weight)
                 loss = ce_loss + z_loss # todo(sami): check if it is more performant to backward through both loss instead of summing and doing one backward.
