@@ -46,6 +46,7 @@ class NAODataset(StreamingDataset):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         example = super().__getitem__(idx)["token_ids"]
         toks = torch.tensor(ast.literal_eval(example))
+        toks = toks[:self.max_seq_length]
         if not self.context_stuffing:
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
@@ -64,11 +65,10 @@ class NAODataset(StreamingDataset):
                 seqlens.append(len(additional_toks))
                 toks = torch.cat([toks, additional_toks], dim=0)
                 remaining_toks_cnt = self.max_seq_length - len(toks)
-
             assert len(toks) == self.max_seq_length, f"{len(toks)} != {self.max_seq_length}"
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
-
+        
 def get_context_stuffing_collate_fn(max_seq_length: int = -1):
     """Returns the collate function for context stuffing pretraining (needed in the DataLoader).
 

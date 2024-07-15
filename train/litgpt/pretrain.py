@@ -312,10 +312,11 @@ def fit(
             targets = train_data["labels"][:, 1 : T].contiguous().long()
 
             seqlens = train_data.get("seqlens", None)
+            seqlens = None
         else:
             input_ids = train_data[:, 0 : model.max_seq_length].contiguous().long()
             targets = train_data[:, 1 : (model.max_seq_length + 1)].contiguous().long()
-            seqlens = None
+            # seqlens = [32] * train.micro_batch_size * 2
         
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
