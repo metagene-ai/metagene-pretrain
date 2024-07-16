@@ -78,6 +78,7 @@ def setup(
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     max_seq_length_data: int = 128,
     fake_data: bool = False,
+    activation_ckpt: bool = False,
 ):
     """Pretrain a model.
 
@@ -124,7 +125,10 @@ def setup(
     )
 
     if devices > 1:
-        strategy = FSDPStrategy(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+        fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+        if activation_ckpt:
+            fsdp_args["activation_checkpointing_policy"] = {Block}
+        strategy = FSDPStrategy(**fsdp_args)
     else:
         strategy = "auto"
     fabric = L.Fabric(devices=devices, strategy=strategy, precision="bf16-mixed", loggers=[logger])
