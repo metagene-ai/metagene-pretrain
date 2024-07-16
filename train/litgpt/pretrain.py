@@ -104,7 +104,7 @@ def setup(
     hparams = locals()
 
     if 'genomics' in hparams['model_name']:
-        data = NAO(context_stuffing=context_stuffing, fake_data=fake_data, seqlens_cumulative=attention_impl == "fa")
+        data = NAO(context_stuffing=context_stuffing, fake_data=fake_data)
     elif data is None:
         data = TinyLlama()
 
