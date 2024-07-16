@@ -1515,7 +1515,7 @@ genomics_llama = [
         n_query_groups=None,
         shared_attention_norm=False,
         norm_class_name="RMSNorm",
-        norm_eps=1e-6,
+        norm_eps=1e-5,
         mlp_class_name="LLaMAMLP",
         gelu_approximate="none",
         intermediate_size=11008,
@@ -1523,6 +1523,23 @@ genomics_llama = [
         rope_base=10000,
         n_expert=0,
         n_expert_per_token=0,
+    ),
+ dict(
+        name="mgfm_1b",
+        block_size=512, # max sequence length
+        vocab_size=1025, # vocab size
+        padding_multiple=64,
+        n_layer=22,
+        n_head=32,
+        n_embd=2048,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        norm_eps=1e-5, #Llama 2 use 1e-5. Llama 1 use 1e-6
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=5632,
+        n_query_groups=4,
     ),
 ]
 
