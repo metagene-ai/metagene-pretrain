@@ -22,7 +22,7 @@ except ImportError:
 try:
     import flash_attn
     FLASH_AVAILABLE = True
-    from flash_attn import flash_attn_func
+    from flash_attn import flash_attn_func, flash_attn_varlen_func
 except ImportError:
     FLASH_AVAILABLE = False
 
@@ -253,12 +253,17 @@ class CausalSelfAttention(nn.Module):
     ) -> torch.Tensor:
 
         if seqlens is not None:
-            if self.config.attention_impl != "xformers":
-                raise ValueError("context stuffing is only supported with xformers")
             if mask is not None:
                 raise ValueError("context stuffing is not compatible with custom mask")
             
-            return self._xformers_attention_with_seqlens(q, k, v, scale, seqlens)
+            if self.config.attention_impl == "sdpa":
+                raise ValueError("context stuffing is not supported with sdpa")
+            elif self.config.attention_impl == "xformers":
+                return self._xformers_attention_with_seqlens(q, k, v, scale, seqlens)
+            elif self.config.attention_impl == "fa":
+                return self._fa_attention_with_seqlens(q, k, v, scale, seqlens)
+            else:
+                raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
 
         if self.config.attention_impl == "sdpa":
             return self._sdpa_attention(q, k, v, scale, mask)
@@ -323,6 +328,22 @@ class CausalSelfAttention(nn.Module):
         v = rearrange(v, 'b n t h -> b t n h')
         # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)      
+
+    def _fa_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
+        scale = 1.0 / math.sqrt(self.config.head_size)
+        b = q.shape[0]
+        seqlens = torch.tensor(seqlens, dtype=torch.int32)
+        cu_seqlens = torch.concat([torch.tensor([0]), seqlens.cumsum(0)], dim=0).to(torch.int32).to(q.device)
+        max_seqlen = seqlens.max().item()
+
+        q = rearrange(q, 'b n t h -> (b t) n h')
+        k = rearrange(k, 'b n t h -> (b t) n h')
+        v = rearrange(v, 'b n t h -> (b t) n h')
+        # q/k/v is [b, nh, t, hs] but fa expected [b * t, nh, hs]
+        y = flash_attn_varlen_func(q, k, v, cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens, max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen, causal=True, softmax_scale=scale)
+
+        y = rearrange(y, '(b t) n h -> b t n h', b=b)
+        return y
 
     def build_kv_cache(
         self,

@@ -135,7 +135,8 @@ def test_attn_output(config: Config, precision: str, attention_impl: str):
     torch.testing.assert_close(output_sdpa, output_xformers, atol=atol, rtol=rtol)
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
-def test_context_stuffing_attn(config: Config, precision: str):
+@pytest.mark.parametrize("attention_impl", ["xformers", "fa"])
+def test_context_stuffing_attn(config: Config, precision: str, attention_impl: str):
     """
     In this test we compare normal pad attention with stuffing.
 
@@ -147,7 +148,7 @@ def test_context_stuffing_attn(config: Config, precision: str):
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
 
-    config.attention_impl = "xformers"
+    config.attention_impl = attention_impl
     model = CausalSelfAttention(config)
     model = fabric.setup(model)
 
@@ -166,24 +167,25 @@ def test_context_stuffing_attn(config: Config, precision: str):
     cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
         
     ### batch 
-    output_xformers = model(input, cos, sin)
+    output_ctx_stuff = model(input, cos, sin)
     
-    output_xformers = output_xformers[:, :4, :] # remove padding token
+    output_ctx_stuff = output_ctx_stuff[:, :4, :] # remove padding token
 
     output_xformers_stuff = model(input_stuff, cos, sin, seqlens=seqlens)
     output_xformers_stuff = output_xformers_stuff.reshape(2,4,config.n_embd)
 
     ### TESTING
-    assert output_xformers.shape == output_xformers_stuff.shape
+    assert output_ctx_stuff.shape == output_xformers_stuff.shape
 
     ### xformers has a higher tolerance
     atol = AttentionFwOpBase.ERROR_ATOL[PRECISION_TO_DTYPE[precision]]
     rtol = AttentionFwOpBase.ERROR_RTOL[PRECISION_TO_DTYPE[precision]]
-    torch.testing.assert_close(output_xformers, output_xformers_stuff, atol=atol, rtol=rtol)
+    torch.testing.assert_close(output_ctx_stuff, output_xformers_stuff, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
-def test_context_stuffing_attn_2(config: Config, precision: str):
+@pytest.mark.parametrize("attention_impl", ["xformers", "fa"])
+def test_context_stuffing_attn_2(config: Config, precision: str, attention_impl: str):
     """
     this test is slightu different from the one above, it tests 
     that passing two time the same input in a stuff way yield the same results.
@@ -191,7 +193,7 @@ def test_context_stuffing_attn_2(config: Config, precision: str):
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
 
-    config.attention_impl = "xformers"
+    config.attention_impl = attention_impl
     model = CausalSelfAttention(config)
     model = fabric.setup(model)
 
@@ -199,7 +201,7 @@ def test_context_stuffing_attn_2(config: Config, precision: str):
 
     emb = torch.nn.Embedding(10, config.n_embd).to(fabric.device)
 
-    seq = [2,1,4,8]
+    seq = [2,1,4,8] 
     input_stuff_raw = torch.Tensor([seq + seq]).long().to(fabric.device)
     seqlens = [len(seq), len(seq)]
     input_stuff = emb(input_stuff_raw)
