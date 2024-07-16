@@ -76,7 +76,6 @@ def setup(
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = False,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
-    max_seq_length_data: int = 128,
     fake_data: bool = False,
     activation_ckpt: bool = False,
 ):
@@ -157,7 +156,6 @@ def setup(
         tokenizer,
         train,
         eval,
-        max_seq_length_data,
     )
 
 
@@ -174,7 +172,6 @@ def main(
     tokenizer: Optional[Tokenizer],
     train: TrainArgs,
     eval: EvalArgs,
-    max_seq_length_data: int,
 ) -> None:
     validate_args(train, eval, initial_checkpoint_dir, resume)
 
@@ -208,7 +205,7 @@ def main(
     )
     optimizer = fabric.setup_optimizers(optimizer)
 
-    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, max_seq_length_data)
+    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, model.max_seq_length)
     dataloaders = [train_dataloader] + val_dataloaders
     print(f"Train dataset: {len(data.train_dataset)} samples | {len(train_dataloader)} batches")
     for i, val_dataloader in enumerate(val_dataloaders):

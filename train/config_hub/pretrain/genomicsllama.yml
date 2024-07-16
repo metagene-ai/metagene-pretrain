@@ -101,5 +101,3 @@ logger_name: wandb
 
 # The random seed to use for reproducibility. (type: int, default: 42)
 seed: 42
-
-max_seq_length_data: 128
