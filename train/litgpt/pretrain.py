@@ -290,6 +290,8 @@ def fit(
     total_t0 = time.perf_counter()
     val_loss = ["n/a"] * len(val_dataloaders)
 
+    current_time = time.time()
+
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
@@ -371,7 +373,9 @@ def fit(
                 "tokens": state["iter_num"] * train.micro_batch_size * model.max_seq_length,
                 "total_tokens": (state["iter_num"] * train.micro_batch_size * model.max_seq_length * fabric.world_size),
                 "learning_rate": lr,
+                "tokens_per_second": model.max_seq_length * train.global_batch_size / (time.time() - current_time),
             }
+            current_time = time.time()
             if train.z_loss:
                 metrics["z_loss"] = z_loss
             if isinstance(val_loss[0], float):
@@ -387,8 +391,8 @@ def fit(
             )
 
             throughput_metrics = throughput.compute()
-            if "samples_per_sec" in throughput_metrics.keys():
-                throughput_metrics["token_per_sec"] = throughput_metrics["samples_per_sec"] * model.max_seq_length
+            # if "samples_per_sec" in throughput_metrics.keys():
+            #     throughput_metrics["token_per_sec"] = throughput_metrics["samples_per_sec"] * model.max_seq_length
             metrics.update(throughput_metrics)
             if logging_stability_metrics:
                 metrics.update(activation_monitor.log_activations)
