@@ -75,7 +75,7 @@ def setup(
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = False,
-    attention_impl: Literal["sdpa", "fa2", "xformers"] = "sdpa",
+    attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     max_seq_length_data: int = 128,
     fake_data: bool = False,
 ):

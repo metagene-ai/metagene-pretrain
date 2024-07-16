@@ -7,7 +7,6 @@ from litgpt.model import CausalSelfAttention, Config, build_rope_cache
 from litgpt.model import GPT
 from lightning.fabric import Fabric
 from xformers.ops.fmha.common import AttentionFwOpBase
-import xformers.ops as xops
 
 @pytest.fixture
 def config() -> Config:
@@ -25,7 +24,7 @@ PRECISION_TO_DTYPE = {
     "16-mixed": torch.float16,
 }
 
-@pytest.mark.parametrize("attention_impl", ["sdpa","xformers"])
+@pytest.mark.parametrize("attention_impl", ["sdpa","xformers", "fa"])
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
 def test_gpt(config: Config, attention_impl: str, precision: str):
     config.attention_impl = attention_impl
@@ -51,9 +50,10 @@ def _test_gpt(config: Config, precision: str):
     assert not output.isnan().any()
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
-def test_gpt_output(config: Config, precision: str):
+@pytest.mark.parametrize("attention_impl", ["xformers", "fa"])
+def test_gpt_output(config: Config, precision: str, attention_impl: str):
     """
-    in this test we compare the output of the GPT with sdpa and xformers
+    in this test we compare the output of the GPT with sdpa and xformers/fa
     """
     
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
@@ -74,7 +74,7 @@ def test_gpt_output(config: Config, precision: str):
     output_sdpa = model(input)
     
     ### XFORMERS 
-    config.attention_impl = "xformers"
+    config.attention_impl = attention_impl
     output_xformers = model(input)
 
     ### TESTING
@@ -100,9 +100,10 @@ def get_cos_and_sin_attn(config: Config, seq_len: int, device)-> Tuple[torch.Ten
     return cos, sin
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
-def test_attn_output(config: Config, precision: str):
+@pytest.mark.parametrize("attention_impl", ["xformers", "fa"])
+def test_attn_output(config: Config, precision: str, attention_impl: str):
     """
-    in this test we compare the output of the GPT with sdpa and xformers
+    in this test we compare the output of the GPT with sdpa and xformers/fa
     """
     
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
@@ -122,7 +123,7 @@ def test_attn_output(config: Config, precision: str):
     output_sdpa = model(input, cos, sin)
     
     ### XFORMERS 
-    config.attention_impl = "xformers"
+    config.attention_impl = attention_impl
     output_xformers = model(input, cos, sin)
 
     ### TESTING

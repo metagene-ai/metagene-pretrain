@@ -61,7 +61,7 @@ class Config:
     rope_base: int = 10000
     n_expert: int = 0
     n_expert_per_token: int = 0
-    attention_impl: Literal["sdpa", "fa2", "xformers"] = "sdpa"
+    attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa"
 
     def __post_init__(self):
         if not self.name:

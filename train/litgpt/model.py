@@ -19,6 +19,13 @@ try:
 except ImportError:
     XFORMERS_AVAILABLE = False
 
+try:
+    import flash_attn
+    FLASH_AVAILABLE = True
+    from flash_attn import flash_attn_func
+except ImportError:
+    FLASH_AVAILABLE = False
+
 from einops import rearrange
 
 from litgpt.config import Config
@@ -234,9 +241,6 @@ class CausalSelfAttention(nn.Module):
                 raise TypeError("You need to call `gpt.set_kv_cache()`")
             k, v = self.kv_cache(input_pos, k, v)
 
-        if self.kv_cache is not None and self.config.attention_impl == "fa2":
-            raise NotImplementedError("FA2 with kv cache is not implemented")
-        
         scale = 1.0 / math.sqrt(self.config.head_size)
         y = self.scaled_dot_product_attention(q, k, v, scale,mask, seqlens)
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
@@ -263,6 +267,11 @@ class CausalSelfAttention(nn.Module):
                 return self._xformers_attention(q, k, v, scale, mask)
             else:
                 raise ImportError("Xformers is not available, please install xformers library to use it.")
+        elif self.config.attention_impl == "fa":
+            if FLASH_AVAILABLE:
+                return self._fa_attention(q, k, v, scale, mask)
+            else:
+                raise ImportError("Flash attention is not available, please install flash_attn library to use it.")
         else:
             raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
 
@@ -308,6 +317,12 @@ class CausalSelfAttention(nn.Module):
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
         )   
     
+    def _fa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        q = rearrange(q, 'b n t h -> b t n h')
+        k = rearrange(k, 'b n t h -> b t n h')
+        v = rearrange(v, 'b n t h -> b t n h')
+        # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
+        return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)      
 
     def build_kv_cache(
         self,
