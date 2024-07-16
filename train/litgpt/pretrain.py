@@ -387,6 +387,8 @@ def fit(
             )
 
             throughput_metrics = throughput.compute()
+            if "samples_per_sec" in throughput_metrics.keys():
+                throughput_metrics["token_per_sec"] = throughput_metrics["samples_per_sec"] * model.max_seq_length
             metrics.update(throughput_metrics)
             if logging_stability_metrics:
                 metrics.update(activation_monitor.log_activations)
