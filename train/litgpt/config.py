@@ -1496,12 +1496,38 @@ genomics_llama = [
         mlp_class_name="LLaMAMLP",
         intermediate_size=512, # 4096
         n_query_groups=4,
-    )
+    ),
+    dict(
+        name="mgfm_7b",
+        scale_embeddings=False,
+        block_size=512, # max sequence length
+        vocab_size=1024, # vocab size
+        padding_multiple=64,
+        padded_vocab_size=None,
+        n_layer=32,
+        n_head=32,
+        head_size=None,
+        n_embd=4096,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        lm_head_bias=False,
+        n_query_groups=None,
+        shared_attention_norm=False,
+        norm_class_name="RMSNorm",
+        norm_eps=1e-6,
+        mlp_class_name="LLaMAMLP",
+        gelu_approximate="none",
+        intermediate_size=11008,
+        rope_condense_ratio=1,
+        rope_base=10000,
+        n_expert=0,
+        n_expert_per_token=0,
+    ),
 ]
 
-configs.append(deepcopy(genomics_llama[0]))
-configs.append(deepcopy(genomics_llama[1]))
-
+for c in genomics_llama:
+    configs.append(deepcopy(c))
 
 
 ##########################
