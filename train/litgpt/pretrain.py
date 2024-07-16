@@ -76,7 +76,8 @@ def setup(
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = False,
     attention_impl: Literal["sdpa", "fa2", "xformers"] = "sdpa",
-    max_seq_length_data: int = 128
+    max_seq_length_data: int = 128,
+    fake_data: bool = False,
 ):
     """Pretrain a model.
 
@@ -103,7 +104,7 @@ def setup(
     hparams = locals()
 
     if 'genomics' in hparams['model_name']:
-        data = NAO(context_stuffing=context_stuffing)
+        data = NAO(context_stuffing=context_stuffing, fake_data=fake_data)
     elif data is None:
         data = TinyLlama()
 

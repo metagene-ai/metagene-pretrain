@@ -4,14 +4,13 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, List
 import numpy as np
-from typing import Any, Dict, Optional, Sequence, List
 import ast
-import numpy as np
 from streaming import StreamingDataset, StreamingDataLoader
 import streaming
 from streaming.base.stream import Stream
 
 import torch
+from torch.utils.data import Dataset, DataLoader
 
 from litgpt import Tokenizer
 # TODO: potentially implement MLMDataset
@@ -69,6 +68,29 @@ class NAODataset(StreamingDataset):
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
         
+class FakeDataset(Dataset):
+    max_len = 1000000
+
+    def __init__(
+        self,
+        max_seq_length: int = -1,
+        context_stuffing: bool = False,
+    ) -> None:
+        self.max_seq_length = max_seq_length
+        assert self.max_seq_length % 2 == 0, "max_seq_length must be even"
+        self.context_stuffing = context_stuffing
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        toks = torch.randint(low=0, high=100, size=(self.max_seq_length,), dtype=torch.int64)  # Adjusted to specify range and size
+        labels = toks.clone()
+        if self.context_stuffing:
+            return {"input_ids": toks, "labels": labels, "seqlens": [self.max_seq_length//2, self.max_seq_length//2]}
+        else:
+            return {"input_ids": toks, "labels": labels}
+
+    def __len__(self):
+        return self.max_len
+
 def get_context_stuffing_collate_fn(max_seq_length: int = -1):
     """Returns the collate function for context stuffing pretraining (needed in the DataLoader).
 
@@ -89,6 +111,7 @@ def _context_stuffing_collate_fn(samples: List[Dict[str, torch.Tensor]], max_seq
 
     batched["seqlens"] = [x for sample in samples for x in sample["seqlens"]]
     return batched
+
 
 # Our current implementation roughly follows the Alpaca data module
 # TODO: implement s3 streaming dataset for NAO
@@ -124,15 +147,8 @@ class NAO(DataModule):
     # collect_human_virus: bool = True
     collect_human_virus: bool = False
     context_stuffing: bool = False
+    fake_data: bool = False
 
-
-    def __post_init__(self):
-        # Could be a remote path (s3://) or a local path
-        # TODO: replace with NAO data paths
-        # self.slimpajama_train = str(self.data_path).rstrip("/") + "/slimpajama/train"
-        # self.slimpajama_val = str(self.data_path).rstrip("/") + "/slimpajama/val"
-        # self.starcoder_train = str(self.data_path).rstrip("/") + "/starcoder"
-        return
 
     def connect(
         self, tokenizer: Optional[Tokenizer] = None, batch_size: int = 1, max_seq_length: Optional[int] = None
@@ -140,58 +156,57 @@ class NAO(DataModule):
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.seq_length = -1 if max_seq_length is None else max_seq_length
-
-    def prepare_data(self) -> None:
-        # for path in (self.slimpajama_train, self.slimpajama_val, self.starcoder_train):
-        #     if not path.startswith("s3://") and not Path(path).is_dir():
-        #         raise FileNotFoundError(
-        #             "The data path for TinyLlama is expected to be the directory containing these subdirectories:"
-        #             f" `slimpajama/train`, `slimpajama/val`, `starcoder`. The directory {path} does not exist."
-        #             " Set it via `--data.data_path=...`"
-        #         )
-        return
     
     def setup(self, rank) -> None:
+        if not self.fake_data:
+            nao_file_list = [
+                "MJ-2024-04-04-44_2-27_S5_L001.collapsed.gz",
+                "MJ-2024-02-08-44_Ceres_1_9_S9.collapsed.gz",
+                "JR-2024-04-15-nR346G1-P001-L001.collapsed.gz",
+                "JR-2024-03-22-a-nR342-L4-G1-P001.collapsed.gz",
+                "MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz",
+            ]
+            
+            rank_id = f"rank_{rank}_id"
 
-        nao_file_list = [
-            "MJ-2024-04-04-44_2-27_S5_L001.collapsed.gz",
-            "MJ-2024-02-08-44_Ceres_1_9_S9.collapsed.gz",
-            "JR-2024-04-15-nR346G1-P001-L001.collapsed.gz",
-            "JR-2024-03-22-a-nR342-L4-G1-P001.collapsed.gz",
-            "MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz",
-        ]
-        
-        rank_id = f"rank_{rank}_id"
+            stream_list = []
+            for nao_file in nao_file_list:
+                stream = Stream(
+                    remote = f"s3://mgfm-bucket-01/streams/stream_{nao_file}",
+                    local = f"/tmp/mds-cache/stream_{nao_file}_{rank_id}",
+                    repeat = 1,
+                )
+                stream_list.append(stream)
 
-        stream_list = []
-        for nao_file in nao_file_list:
-            stream = Stream(
-                remote = f"s3://mgfm-bucket-01/streams/stream_{nao_file}",
-                local = f"/tmp/mds-cache/stream_{nao_file}_{rank_id}",
-                repeat = 1,
+            streaming.base.util.clean_stale_shared_memory()
+            self.train_dataset = NAODataset(
+                batch_size=self.batch_size,
+                streams = stream_list[:-1],
+                streaming_kwargs = {"shuffle": True},
+                tokenizer=self.tokenizer,
+                max_seq_length=self.seq_length,
+                ignore_index=self.ignore_index,
+                context_stuffing=self.context_stuffing,
             )
-            stream_list.append(stream)
 
-        streaming.base.util.clean_stale_shared_memory()
-        self.train_dataset = NAODataset(
-            batch_size=self.batch_size,
-            streams = stream_list[:-1],
-            streaming_kwargs = {"shuffle": True},
-            tokenizer=self.tokenizer,
-            max_seq_length=self.seq_length,
-            ignore_index=self.ignore_index,
-            context_stuffing=self.context_stuffing,
-        )
-
-        self.test_dataset = NAODataset(
-            batch_size=self.batch_size,
-            streams = stream_list[-1:], # using final stream in list as a validation set
-            streaming_kwargs = {"shuffle": True},
-            tokenizer=self.tokenizer,
-            max_seq_length=self.seq_length,
-            ignore_index=self.ignore_index,
-            context_stuffing=self.context_stuffing,
-        )
+            self.test_dataset = NAODataset(
+                batch_size=self.batch_size,
+                streams = stream_list[-1:], # using final stream in list as a validation set
+                streaming_kwargs = {"shuffle": True},
+                tokenizer=self.tokenizer,
+                max_seq_length=self.seq_length,
+                ignore_index=self.ignore_index,
+                context_stuffing=self.context_stuffing,
+            )
+        else:
+            self.train_dataset = FakeDataset(
+                max_seq_length=self.seq_length,
+                context_stuffing=self.context_stuffing,
+            )
+            self.test_dataset = FakeDataset(
+                max_seq_length=self.seq_length,
+                context_stuffing=self.context_stuffing,
+            )
 
     def get_collate_fn(self):
         if not self.context_stuffing:
@@ -204,41 +219,40 @@ class NAO(DataModule):
             return get_context_stuffing_collate_fn(max_seq_length=self.seq_length)
 
 
-    def train_dataloader(self) -> StreamingDataLoader:
-        return StreamingDataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            generator=torch.Generator().manual_seed(self.seed),
-            num_workers=self.num_workers,
-            collate_fn=self.get_collate_fn()
-        )
+    def train_dataloader(self) -> DataLoader:
+        if not self.fake_data:
+            return StreamingDataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                generator=torch.Generator().manual_seed(self.seed),
+                num_workers=self.num_workers,
+                    collate_fn=self.get_collate_fn()
+                )
+        else:
+            return DataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=self.num_workers,
+                collate_fn=self.get_collate_fn()
+            )
 
     def val_dataloader(self) -> StreamingDataLoader:
-        return StreamingDataLoader(
+        if not self.fake_data:
+            return StreamingDataLoader(
                 self.test_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,
                 collate_fn=self.get_collate_fn()
             )
+        else:
+            return DataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=self.num_workers,
+                collate_fn=self.get_collate_fn()
+            )            
         
-
-        # if self.human_virus_dataset is not None:
-        #     dataloaders.append(
-        #         DataLoader(
-        #             self.human_virus_dataset,
-        #             batch_size=self.batch_size,
-        #             shuffle=False,
-        #             num_workers=self.num_workers,
-        #             collate_fn=get_sft_collate_fn(
-        #                 max_seq_length=self.max_seq_length, 
-        #                 ignore_index=self.ignore_index,
-        #                 pad_id=self.tokenizer.processor.pad_token_id,
-        #             ),
-        #         )
-            
-        #     )
-        # return dataloaders
-
-
