@@ -224,11 +224,12 @@ def test_context_stuffing_attn_2(config: Config, precision: str, attention_impl:
 
 
 @pytest.mark.parametrize("precision", ["bf16-mixed", "16-mixed"])
-def test_context_stuffing_backward(config: Config, precision: str):
+@pytest.mark.parametrize("attention_impl", ["xformers", "fa"])
+def test_context_stuffing_backward(config: Config, precision: str, attention_impl: str):
     fabric = Fabric(accelerator="cuda", devices=1, precision=precision)
     fabric.launch()
 
-    config.attention_impl = "xformers"
+    config.attention_impl = attention_impl
     model = GPT(config)
     model = fabric.setup(model)
 
