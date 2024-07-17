@@ -1498,7 +1498,7 @@ genomics_llama = [
         n_query_groups=4,
     ),
     dict(
-        name="mgfm_7b",
+        name="genomics-llama-7b",
         scale_embeddings=False,
         block_size=512, # max sequence length
         vocab_size=1025, # vocab size
@@ -1525,7 +1525,7 @@ genomics_llama = [
         n_expert_per_token=0,
     ),
  dict(
-        name="mgfm_1b",
+        name="genomics-llama-1b",
         block_size=512, # max sequence length
         vocab_size=1025, # vocab size
         padding_multiple=64,
