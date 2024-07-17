@@ -197,7 +197,8 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    # model = torch.compile(model)
+    if train.torch_compile:
+        model = torch.compile(model)
     model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -536,5 +537,7 @@ def validate_args(train: TrainArgs, eval: EvalArgs, initial_checkpoint_dir, resu
 
 if __name__ == "__main__":
     torch.set_float32_matmul_precision("high")
-
+    torch._dynamo.config.suppress_errors = "GENOMIC_DEBUG" not in os.environ 
+    # allow to continue when compiling failed
+    # can be disable by setting GENOMIC_DEBUG=1 as env var
     CLI(setup)
