@@ -37,7 +37,8 @@ class TrainArgs:
     ## PERF
     torch_compile: bool = False
     activation_ckpt: bool = False
-    
+    fsdp_full_wrap: bool = False
+
 
     # Optimization args
     learning_rate: float = 1e-3
