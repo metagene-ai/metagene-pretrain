@@ -77,7 +77,6 @@ def setup(
     context_stuffing: bool = False,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
-    activation_ckpt: bool = False,
 ):
     """Pretrain a model.
 
@@ -128,7 +127,7 @@ def setup(
             strategy = DDPStrategy()
         else:
             fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
-            if activation_ckpt:
+            if train.activation_ckpt:
                 fsdp_args["activation_checkpointing_policy"] = {Block}
             strategy = FSDPStrategy(**fsdp_args)
     else:

@@ -34,7 +34,10 @@ class TrainArgs:
     z_loss: bool = False
     z_loss_weight: float = 2e-4
 
+    ## PERF
     torch_compile: bool = False
+    activation_ckpt: bool = False
+    
 
     # Optimization args
     learning_rate: float = 1e-3
