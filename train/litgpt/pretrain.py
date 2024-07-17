@@ -13,7 +13,7 @@ from typing import Callable, Optional, Tuple, Union, List
 import lightning as L
 import torch
 import torch.nn as nn
-from lightning.fabric.strategies import FSDPStrategy
+from lightning.fabric.strategies import FSDPStrategy, DDPStrategy
 from lightning.fabric.utilities.throughput import ThroughputMonitor, measure_flops
 from torch.utils.data import DataLoader
 from torchmetrics.aggregation import RunningMean
@@ -124,10 +124,13 @@ def setup(
     )
 
     if devices > 1:
-        fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
-        if activation_ckpt:
-            fsdp_args["activation_checkpointing_policy"] = {Block}
-        strategy = FSDPStrategy(**fsdp_args)
+        if fsdp_strategy == "DDP":
+            strategy = DDPStrategy()
+        else:
+            fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+            if activation_ckpt:
+                fsdp_args["activation_checkpointing_policy"] = {Block}
+            strategy = FSDPStrategy(**fsdp_args)
     else:
         strategy = "auto"
     fabric = L.Fabric(devices=devices, strategy=strategy, precision="bf16-mixed", loggers=[logger])
