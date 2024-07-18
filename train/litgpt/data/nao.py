@@ -53,9 +53,12 @@ class NAODataset(StreamingDataset):
             seqlens = []
             remaining_toks_cnt = self.max_seq_length - len(toks)
             seqlens.append(len(toks))
+            idx_mult = 0
             while remaining_toks_cnt > 0:
-                new_entry = super().__getitem__(self.batch_size + idx)["token_ids"]
+                idx_mult += 1
+                new_entry = super().__getitem__(idx_mult * self.batch_size + idx)["token_ids"]
                 #todo(sami): discuss is batch_size + idx is reasonable or it it should be more random
+                #todo(willie): one proposal above
                 new_toks = torch.tensor(ast.literal_eval(new_entry))
                 s_idx = self.rng.randint(
                     low=0, high=max(1, len(new_toks) - remaining_toks_cnt + 1)
@@ -254,5 +257,4 @@ class NAO(DataModule):
                 shuffle=False,
                 num_workers=self.num_workers,
                 collate_fn=self.get_collate_fn()
-            )            
-        
+            )
