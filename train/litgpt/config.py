@@ -61,6 +61,7 @@ class Config:
     rope_base: int = 10000
     n_expert: int = 0
     n_expert_per_token: int = 0
+    attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa"
 
     def __post_init__(self):
         if not self.name:
@@ -139,6 +140,7 @@ class Config:
 
             return partial(RMSNorm, add_unit_offset="Gemma" in self.name)
         return getattr(torch.nn, self.norm_class_name)
+
 
 
 ########################
@@ -1477,10 +1479,72 @@ genomics_llama = [
         mlp_class_name="LLaMAMLP",
         intermediate_size=6144, # 4096
         n_query_groups=4,
-    )
+    ),
+    dict(
+        name="genomics-llama-mini",
+        block_size=512,
+        vocab_size=1025,
+        padding_multiple=64,
+        n_layer=6,
+        n_head=4,
+        n_embd=128, # 1024
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",  # original TinyLlama uses FusedRMSNorm
+        norm_eps=1e-5,
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=512, # 4096
+        n_query_groups=4,
+    ),
+    dict(
+        name="genomics-llama-7b",
+        scale_embeddings=False,
+        block_size=512, # max sequence length
+        vocab_size=1025, # vocab size
+        padding_multiple=64,
+        padded_vocab_size=None,
+        n_layer=32,
+        n_head=32,
+        head_size=None,
+        n_embd=4096,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        lm_head_bias=False,
+        n_query_groups=None,
+        shared_attention_norm=False,
+        norm_class_name="RMSNorm",
+        norm_eps=1e-5,
+        mlp_class_name="LLaMAMLP",
+        gelu_approximate="none",
+        intermediate_size=11008,
+        rope_condense_ratio=1,
+        rope_base=10000,
+        n_expert=0,
+        n_expert_per_token=0,
+    ),
+ dict(
+        name="genomics-llama-1b",
+        block_size=512, # max sequence length
+        vocab_size=1025, # vocab size
+        padding_multiple=64,
+        n_layer=22,
+        n_head=32,
+        n_embd=2048,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        norm_eps=1e-5, #Llama 2 use 1e-5. Llama 1 use 1e-6
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=5632,
+        n_query_groups=4,
+    ),
 ]
 
-configs.append(deepcopy(genomics_llama[0]))
+for c in genomics_llama:
+    configs.append(deepcopy(c))
 
 
 ##########################

@@ -7,11 +7,26 @@ https://github.com/EleutherAI/gpt-neox/tree/main/megatron/model.
 """
 
 import math
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from typing_extensions import Self
+
+try:
+    import xformers.ops as xops
+    XFORMERS_AVAILABLE = True
+except ImportError:
+    XFORMERS_AVAILABLE = False
+
+try:
+    import flash_attn
+    FLASH_AVAILABLE = True
+    from flash_attn import flash_attn_func, flash_attn_varlen_func
+except ImportError:
+    FLASH_AVAILABLE = False
+
+from einops import rearrange
 
 from litgpt.config import Config
 
@@ -70,7 +85,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None, seqlens: Optional[Iterable[int]] = None) -> torch.Tensor:
         T = idx.size(1)
         if self.max_seq_length < T:
             raise ValueError(f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}.")
@@ -91,7 +106,7 @@ class GPT(nn.Module):
             x = x * (self.config.n_embd**0.5)
 
         for block in self.transformer.h:
-            x = block(x, cos, sin, mask, input_pos)
+            x = block(x, cos, sin, mask, input_pos, seqlens)
         x = self.transformer.ln_f(x)
         return self.lm_head(x)  # (b, t, vocab_size)
 
@@ -153,9 +168,10 @@ class Block(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
+        seqlens: Optional[Iterable[int]] = None,
     ) -> torch.Tensor:
         n_1 = self.norm_1(x)
-        h = self.attn(n_1, cos, sin, mask, input_pos)
+        h = self.attn(n_1, cos, sin, mask, input_pos, seqlens)
         if self.config.parallel_residual:
             n_2 = n_1 if self.config.shared_attention_norm else self.norm_2(x)
             x = self.mlp(n_2) + h + x
@@ -191,11 +207,10 @@ class CausalSelfAttention(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
+        seqlens: Optional[Iterable[int]] = None,
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
-
         qkv = self.attn(x)
-
         # assemble into a number of query groups to support MHA, MQA and GQA together (see `config.n_query_groups`)
         q_per_kv = self.config.n_head // self.config.n_query_groups
         total_qkv = q_per_kv + 2  # each group has 1+ queries, 1 key, and 1 value
@@ -226,21 +241,109 @@ class CausalSelfAttention(nn.Module):
                 raise TypeError("You need to call `gpt.set_kv_cache()`")
             k, v = self.kv_cache(input_pos, k, v)
 
-        y = self.scaled_dot_product_attention(q, k, v, mask)
-
+        scale = 1.0 / math.sqrt(self.config.head_size)
+        y = self.scaled_dot_product_attention(q, k, v, scale,mask, seqlens)
         y = y.reshape(B, T, self.config.head_size * self.config.n_head)  # re-assemble all head outputs side by side
 
         # output projection
         return self.proj(y)
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None, seqlens: Optional[Iterable[int]] = None
     ) -> torch.Tensor:
-        scale = 1.0 / math.sqrt(self.config.head_size)
+
+        if seqlens is not None:
+            if mask is not None:
+                raise ValueError("context stuffing is not compatible with custom mask")
+            
+            if self.config.attention_impl == "sdpa":
+                raise ValueError("context stuffing is not supported with sdpa")
+            elif self.config.attention_impl == "xformers":
+                return self._xformers_attention_with_seqlens(q, k, v, scale, seqlens)
+            elif self.config.attention_impl == "fa":
+                return self._fa_attention_with_seqlens(q, k, v, scale, seqlens)
+            else:
+                raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
+
+        if self.config.attention_impl == "sdpa":
+            return self._sdpa_attention(q, k, v, scale, mask)
+        elif self.config.attention_impl == "xformers":
+            if XFORMERS_AVAILABLE:
+                return self._xformers_attention(q, k, v, scale, mask)
+            else:
+                raise ImportError("Xformers is not available, please install xformers library to use it.")
+        elif self.config.attention_impl == "fa":
+            if FLASH_AVAILABLE:
+                return self._fa_attention(q, k, v, scale, mask)
+            else:
+                raise ImportError("Flash attention is not available, please install flash_attn library to use it.")
+        else:
+            raise ValueError(f"Unknown attention implementation: {self.config.attention_impl}")
+
+    def _sdpa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         y = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, dropout_p=0.0, scale=scale, is_causal=mask is None
         )
         return y.transpose(1, 2)
+
+    def _xformers_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if mask is not None:
+            raise ValueError("custom mask not supporting with xformers")
+
+        attn_bias = xops.LowerTriangularMask()
+
+        q = rearrange(q, 'b n t h -> b t n h')
+        k = rearrange(k, 'b n t h -> b t n h')
+        v = rearrange(v, 'b n t h -> b t n h')
+
+        return xops.memory_efficient_attention(
+            query=q,
+            key=k,
+            value=v,
+            scale=scale,
+            attn_bias=attn_bias,
+            op=xops.MemoryEfficientAttentionFlashAttentionOp,
+        )      
+
+    def _xformers_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
+        attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(q_seqlen=seqlens)
+        attn_bias = attn_bias.make_causal()
+
+        q = rearrange(q, 'b n t h -> 1 (b t) n h')
+        k = rearrange(k, 'b n t h -> 1 (b t) n h')
+        v = rearrange(v, 'b n t h -> 1 (b t) n h')
+
+        return xops.memory_efficient_attention(
+            query=q,
+            key=k,
+            value=v,
+            scale=scale,
+            attn_bias=attn_bias,
+            op=xops.MemoryEfficientAttentionFlashAttentionOp,
+        )   
+    
+    def _fa_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        q = rearrange(q, 'b n t h -> b t n h')
+        k = rearrange(k, 'b n t h -> b t n h')
+        v = rearrange(v, 'b n t h -> b t n h')
+        # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
+        return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)      
+
+    def _fa_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
+        scale = 1.0 / math.sqrt(self.config.head_size)
+        b = q.shape[0]
+        seqlens = torch.tensor(seqlens, dtype=torch.int32)
+        cu_seqlens = torch.concat([torch.tensor([0]), seqlens.cumsum(0)], dim=0).to(torch.int32).to(q.device)
+        max_seqlen = seqlens.max().item()
+
+        q = rearrange(q, 'b n t h -> (b t) n h')
+        k = rearrange(k, 'b n t h -> (b t) n h')
+        v = rearrange(v, 'b n t h -> (b t) n h')
+        # q/k/v is [b, nh, t, hs] but fa expected [b * t, nh, hs]
+        y = flash_attn_varlen_func(q, k, v, cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens, max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen, causal=True, softmax_scale=scale)
+
+        y = rearrange(y, '(b t) n h -> b t n h', b=b)
+        return y
 
     def build_kv_cache(
         self,

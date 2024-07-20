@@ -10,7 +10,7 @@ license = { file = "LICENSE" }
 
 dependencies = [
     "torch>=2.2.0",
-    "lightning==2.3.0.dev20240318",
+    "lightning>=2.3.3",
     "jsonargparse[signatures]>=4.27.6",
 ]
 
@@ -47,7 +47,12 @@ all = [
     "huggingface_hub[hf_transfer]>=0.21.0",  # download
     "transformers", #tokenizer
     "wandb",
-    "mosaicml-streaming"
+    "mosaicml-streaming",
+    "xformers",
+    "einops",
+]
+flashattn = [
+    "flash-attn",
 ]
 
 [build-system]

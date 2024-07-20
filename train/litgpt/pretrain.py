@@ -74,6 +74,10 @@ def setup(
     logger_name: Literal["wandb", "tensorboard", "csv"] = "tensorboard",
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
+    context_stuffing: bool = True,
+    attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
+    fake_data: bool = False,
+    activation_ckpt: bool = False,
 ):
     """Pretrain a model.
 
@@ -100,7 +104,7 @@ def setup(
     hparams = locals()
 
     if 'genomics' in hparams['model_name']:
-        data = NAO()
+        data = NAO(context_stuffing=context_stuffing, fake_data=fake_data)
     elif data is None:
         data = TinyLlama()
 
@@ -109,6 +113,7 @@ def setup(
     elif model_config is None and model_name is None:
         model_name = "tiny-llama-1.1b"
     config = Config.from_name(model_name) if model_config is None else model_config
+    config.attention_impl = attention_impl
     devices = parse_devices(devices)
     out_dir = init_out_dir(out_dir)
     # in case the dataset requires the Tokenizer
@@ -119,7 +124,10 @@ def setup(
     )
 
     if devices > 1:
-        strategy = FSDPStrategy(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+        fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+        if activation_ckpt:
+            fsdp_args["activation_checkpointing_policy"] = {Block}
+        strategy = FSDPStrategy(**fsdp_args)
     else:
         strategy = "auto"
     fabric = L.Fabric(devices=devices, strategy=strategy, precision="bf16-mixed", loggers=[logger])
@@ -133,6 +141,7 @@ def setup(
         log_hparams['data'].local_cache = str(log_hparams['data'].local_cache)
         log_hparams['data'].download_dir = str(log_hparams['data'].download_dir)
         fabric.logger.log_hyperparams(log_hparams)
+
 
     main(
         fabric,
@@ -185,8 +194,8 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    model = torch.compile(model)
-    model = fabric.setup(model)
+    # model = torch.compile(model)
+    model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=train.learning_rate,
@@ -242,11 +251,13 @@ def fit(
     model = state["model"]
     optimizer = state["optimizer"]
 
-    validate(fabric, model, val_dataloaders[0], max_iters=2)  # sanity check
+    # validate(fabric, model, val_dataloaders[0], max_iters=2)  # sanity check
     throughput = ThroughputMonitor(fabric, window_size=5)
 
     with torch.device("meta"):
-        meta_model = GPT(model.config)
+        config_copy = copy.deepcopy(model.config)
+        config_copy.attention_impl = "sdpa" # we force sdpa because fa2 cannot be used for meta model
+        meta_model = GPT(config_copy)
         x = torch.randint(0, 1, (train.micro_batch_size, meta_model.max_seq_length))
         model_fwd = lambda: meta_model(x)
 
@@ -280,6 +291,7 @@ def fit(
     val_loss = ["n/a"] * len(val_dataloaders)
 
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
+
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
             break
@@ -301,13 +313,17 @@ def fit(
             _, T = train_data["input_ids"].shape
             input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
             targets = train_data["labels"][:, 1 : T].contiguous().long()
+
+            seqlens = train_data.get("seqlens", None)
+            seqlens = None
         else:
             input_ids = train_data[:, 0 : model.max_seq_length].contiguous().long()
             targets = train_data[:, 1 : (model.max_seq_length + 1)].contiguous().long()
-
+            # seqlens = [32] * train.micro_batch_size * 2
+        
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
-            logits = model(input_ids)
+            logits = model(input_ids, seqlens=seqlens)
             if train.z_loss:
                 ce_loss, z_loss = cross_entropy_max_z_loss(logits, targets, train.z_loss_weight)
                 loss = ce_loss + z_loss # todo(sami): check if it is more performant to backward through both loss instead of summing and doing one backward.
@@ -372,6 +388,8 @@ def fit(
             )
 
             throughput_metrics = throughput.compute()
+            if "samples_per_sec" in throughput_metrics.keys():
+                throughput_metrics["token_per_sec"] = throughput_metrics["samples_per_sec"] * model.max_seq_length
             metrics.update(throughput_metrics)
             if logging_stability_metrics:
                 metrics.update(activation_monitor.log_activations)
@@ -437,9 +455,12 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
 
 
 def get_dataloaders(
-    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, block_size: int
+    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, max_seq_length: int
 ) -> Tuple[DataLoader, List[DataLoader]]:
-    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=block_size)
+    """
+    here max_seq_length rules the dataloader but does not impact the model.
+    """
+    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length)
     with fabric.rank_zero_first():
         data.prepare_data()
     data.setup(rank=fabric.local_rank)
