@@ -41,11 +41,14 @@ class NAODataset(StreamingDataset):
         self.ignore_index = ignore_index
         self.context_stuffing = context_stuffing
         self.rng = np.random.RandomState(seed=seed)
+        self.bos_token_tensor = torch.tensor([4])
+        self.eos_token_tensor = torch.tensor([5])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         example = super().__getitem__(idx)["token_ids"]
         toks = torch.tensor(ast.literal_eval(example))
-        toks = toks[:self.max_seq_length]
+        toks = toks[:self.max_seq_length-1]
+        toks = torch.cat([toks, self.eos_token_tensor], dim=0)
         if not self.context_stuffing:
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
@@ -53,19 +56,19 @@ class NAODataset(StreamingDataset):
             seqlens = []
             remaining_toks_cnt = self.max_seq_length - len(toks)
             seqlens.append(len(toks))
-            idx_mult = 0
+            idx_offset = 0
             while remaining_toks_cnt > 0:
-                idx_mult += 1
-                new_entry = super().__getitem__(idx_mult * self.batch_size + idx)["token_ids"]
-                #todo(sami): discuss is batch_size + idx is reasonable or it it should be more random
-                #todo(willie): one proposal above
+                idx_offset += 1
+                try:
+                    new_entry = super().__getitem__(idx_offset + idx)["token_ids"]
+                except ValueError:
+                    s_idx = self.rng.randint(low=0, high=10000)
+                    new_entry = super().__getitem__(s_idx)["token_ids"]
                 new_toks = torch.tensor(ast.literal_eval(new_entry))
-                s_idx = self.rng.randint(
-                    low=0, high=max(1, len(new_toks) - remaining_toks_cnt + 1)
-                )
-                additional_toks = new_toks[s_idx:s_idx+remaining_toks_cnt] # TODO(sami) maybe pick from another random example
-                seqlens.append(len(additional_toks))
-                toks = torch.cat([toks, additional_toks], dim=0)
+                new_toks = new_toks[:remaining_toks_cnt-1]
+                new_toks = torch.cat([new_toks, self.eos_token_tensor], dim=0)
+                seqlens.append(len(new_toks))
+                toks = torch.cat([toks, new_toks], dim=0)
                 remaining_toks_cnt = self.max_seq_length - len(toks)
             assert len(toks) == self.max_seq_length, f"{len(toks)} != {self.max_seq_length}"
             labels = toks.clone()

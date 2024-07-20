@@ -74,7 +74,7 @@ def setup(
     logger_name: Literal["wandb", "tensorboard", "csv"] = "tensorboard",
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
-    context_stuffing: bool = False,
+    context_stuffing: bool = True,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
     activation_ckpt: bool = False,
@@ -291,6 +291,7 @@ def fit(
     val_loss = ["n/a"] * len(val_dataloaders)
 
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
+
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
             break
