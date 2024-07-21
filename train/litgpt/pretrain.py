@@ -74,9 +74,10 @@ def setup(
     logger_name: Literal["wandb", "tensorboard", "csv"] = "tensorboard",
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
-    context_stuffing: bool = False,
+    context_stuffing: bool = True,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
+    activation_ckpt: bool = False,
 ):
     """Pretrain a model.
 
@@ -123,17 +124,10 @@ def setup(
     )
 
     if devices > 1:
-        if fsdp_strategy == "DDP":
-            strategy = DDPStrategy()
-        else:
-            fsdp_args = dict(state_dict_type="full", sharding_strategy=fsdp_strategy)
-            if train.fsdp_full_wrap:
-                fsdp_args["auto_wrap_policy"] = None
-            else:
-                fsdp_args["auto_wrap_policy"] = {Block}
-            if train.activation_ckpt:
-                fsdp_args["activation_checkpointing_policy"] = {Block}
-            strategy = FSDPStrategy(**fsdp_args)
+        fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+        if activation_ckpt:
+            fsdp_args["activation_checkpointing_policy"] = {Block}
+        strategy = FSDPStrategy(**fsdp_args)
     else:
         strategy = "auto"
     fabric = L.Fabric(devices=devices, strategy=strategy, precision="bf16-mixed", loggers=[logger])
@@ -200,8 +194,7 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    if train.torch_compile:
-        model = torch.compile(model)
+    # model = torch.compile(model)
     model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -299,6 +292,7 @@ def fit(
 
     current_time = time.time()
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
+
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
             break

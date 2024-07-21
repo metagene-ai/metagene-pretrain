@@ -50,6 +50,8 @@ all = [
     "mosaicml-streaming",
     "xformers",
     "einops",
+]
+flashattn = [
     "flash-attn",
 ]
 
