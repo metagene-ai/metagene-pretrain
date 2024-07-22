@@ -77,7 +77,6 @@ def setup(
     context_stuffing: bool = True,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
-    activation_ckpt: bool = False,
 ):
     """Pretrain a model.
 
@@ -125,7 +124,7 @@ def setup(
 
     if devices > 1:
         fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
-        if activation_ckpt:
+        if train.activation_ckpt:
             fsdp_args["activation_checkpointing_policy"] = {Block}
         strategy = FSDPStrategy(**fsdp_args)
     else:
@@ -199,7 +198,9 @@ def main(
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    # model = torch.compile(model)
+    if train.torch_compile:
+        model = torch.compile(model)
+
     model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
