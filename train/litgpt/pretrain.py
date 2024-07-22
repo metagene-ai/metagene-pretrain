@@ -190,9 +190,11 @@ def main(
         model.transformer.wte.weight = model.lm_head.weight
     if train.max_seq_length:
         model.max_seq_length = train.max_seq_length
-    assert train.seq_len_data <= model.max_seq_length
+    
     if train.seq_len_data is None:
         train.seq_len_data = model.max_seq_length
+    else:
+        assert train.seq_len_data <= model.max_seq_length
 
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
