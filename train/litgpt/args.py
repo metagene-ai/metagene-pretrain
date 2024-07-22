@@ -25,8 +25,10 @@ class TrainArgs:
     """Total number of tokens to train on"""
     max_steps: Optional[int] = None
     """Limits the number of optimizer steps to run"""
-    max_seq_length: Optional[int] = None
-    """Limits the length of samples"""
+
+    max_seq_length: Optional[int] = None # model rope seq len
+    seq_len_data: Optional[int] = None # dataloader seq len
+
     tie_embeddings: Optional[bool] = None
     """Whether to tie the embedding weights with the language modeling head weights"""
 
