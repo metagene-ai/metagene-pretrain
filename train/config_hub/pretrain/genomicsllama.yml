@@ -35,7 +35,7 @@ train:
   global_batch_size: 512 # TODO: test change back
 
   # Number of samples per data-parallel rank (type: int, default: 4)
-  micro_batch_size: 32
+  micro_batch_size: 16
 
   # Number of iterations with learning rate warmup active (type: int, default: 2000)
   lr_warmup_steps: 200
@@ -51,7 +51,7 @@ train:
   max_steps:
 
   # Limits the length of samples. Off by default (type: Optional[int], default: null)
-  max_seq_length: 512
+  max_seq_length: 128
 
   # Whether to tie the embedding weights with the language modeling head weights. (type: Optional[bool], default: False)
   tie_embeddings:
@@ -80,7 +80,7 @@ train:
 eval:
 
   # Number of optimizer steps between evaluation calls (type: int, default: 1000)
-  interval: 100
+  interval: 25
 
   # Number of tokens to generate (type: Optional[int], default: null)
   max_new_tokens:
