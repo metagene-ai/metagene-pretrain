@@ -50,8 +50,11 @@ train:
   # Limits the number of optimizer steps to run. (type: Optional[int], default: null)
   max_steps:
 
-  # Limits the length of samples. Off by default (type: Optional[int], default: null)
+  # Model sequence length. Limits the length of samples. Off by default (type: Optional[int], default: null)
   max_seq_length: 512
+
+  # Sequence length for the dataloader
+  seq_len_data: 128
 
   # Whether to tie the embedding weights with the language modeling head weights. (type: Optional[bool], default: False)
   tie_embeddings:
