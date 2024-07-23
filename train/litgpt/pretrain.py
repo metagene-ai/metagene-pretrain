@@ -381,7 +381,7 @@ def fit(
                 "tokens": state["iter_num"] * train.micro_batch_size * train.seq_len_data,
                 "total_tokens": (state["iter_num"] * train.micro_batch_size * train.seq_len_data * fabric.world_size),
                 "learning_rate": lr,
-                "tokens_per_second": model.max_seq_length * train.global_batch_size / (time.time() - current_time),
+                "tokens_per_second": train.seq_len_data * train.global_batch_size / (time.time() - current_time),
             }
             current_time = time.time()
             if train.z_loss:
