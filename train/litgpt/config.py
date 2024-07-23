@@ -1466,7 +1466,7 @@ genomics_llama = [
     dict(
         name="genomics-llama",
         block_size=512,
-        vocab_size=1025,
+        vocab_size=1024,
         padding_multiple=64,
         n_layer=24,
         n_head=16,
@@ -1483,7 +1483,7 @@ genomics_llama = [
     dict(
         name="genomics-llama-mini",
         block_size=512,
-        vocab_size=1025,
+        vocab_size=1024,
         padding_multiple=64,
         n_layer=6,
         n_head=4,
@@ -1501,7 +1501,7 @@ genomics_llama = [
         name="genomics-llama-7b",
         scale_embeddings=False,
         block_size=512, # max sequence length
-        vocab_size=1025, # vocab size
+        vocab_size=1024, # vocab size
         padding_multiple=64,
         padded_vocab_size=None,
         n_layer=32,
@@ -1527,7 +1527,7 @@ genomics_llama = [
  dict(
         name="genomics-llama-1b",
         block_size=512, # max sequence length
-        vocab_size=1025, # vocab size
+        vocab_size=1024, # vocab size
         padding_multiple=64,
         n_layer=22,
         n_head=32,
