@@ -1541,6 +1541,23 @@ genomics_llama = [
         intermediate_size=5632,
         n_query_groups=4,
     ),
+ dict(
+        name="genomics-llama-500m-3090",
+        block_size=512, # max sequence length
+        vocab_size=32000, # vocab size
+        padding_multiple=64,
+        n_layer=11,
+        n_head=32,
+        n_embd=2048,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        norm_eps=1e-5, #Llama 2 use 1e-5. Llama 1 use 1e-6
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=5632,
+        n_query_groups=4,
+    ),
 ]
 
 for c in genomics_llama:
