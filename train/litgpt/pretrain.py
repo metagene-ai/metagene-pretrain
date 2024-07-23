@@ -418,7 +418,7 @@ def fit(
             fabric.print(f"Saving checkpoint to {str(checkpoint_file)!r}")
             # Use buffer to fix issue with serializing state['train_dataloader']
             buffer_train_dataloader = state['train_dataloader']
-            state['train_dataloader'] = None
+            state['train_dataloader'] = buffer_train_dataloader._dataloader.state_dict()
             fabric.save(checkpoint_file, state)
             state['train_dataloader'] = buffer_train_dataloader
             if fabric.global_rank == 0:
