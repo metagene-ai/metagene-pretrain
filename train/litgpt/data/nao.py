@@ -49,6 +49,7 @@ class NAODataset(StreamingDataset):
         toks = torch.tensor(ast.literal_eval(example))
         toks = toks[:self.max_seq_length-1]
         toks = torch.cat([toks, self.eos_token_tensor], dim=0)
+        toks = toks - 1
         if not self.context_stuffing:
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
@@ -67,6 +68,7 @@ class NAODataset(StreamingDataset):
                 new_toks = torch.tensor(ast.literal_eval(new_entry))
                 new_toks = new_toks[:remaining_toks_cnt-1]
                 new_toks = torch.cat([new_toks, self.eos_token_tensor], dim=0)
+                new_toks = new_toks - 1
                 seqlens.append(len(new_toks))
                 toks = torch.cat([toks, new_toks], dim=0)
                 remaining_toks_cnt = self.max_seq_length - len(toks)
