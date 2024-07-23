@@ -123,7 +123,9 @@ def setup(
     )
 
     if devices > 1:
-        fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
+        fsdp_args = dict(state_dict_type="full", sharding_strategy=fsdp_strategy)
+        if not train.fsdp_full_wrap:
+            fsdp_args["auto_wrap_policy"] = {Block}
         if train.activation_ckpt:
             fsdp_args["activation_checkpointing_policy"] = {Block}
         strategy = FSDPStrategy(**fsdp_args)
