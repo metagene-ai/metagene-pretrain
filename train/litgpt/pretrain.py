@@ -13,7 +13,7 @@ from typing import Callable, Optional, Tuple, Union, List
 import lightning as L
 import torch
 import torch.nn as nn
-from lightning.fabric.strategies import FSDPStrategy
+from lightning.fabric.strategies import FSDPStrategy, DDPStrategy
 from lightning.fabric.utilities.throughput import ThroughputMonitor, measure_flops
 from torch.utils.data import DataLoader
 from torchmetrics.aggregation import RunningMean
@@ -37,6 +37,9 @@ from litgpt.utils import (
 )
 from litgpt.utils_metrics import ActivationNormMetric, get_grad_norm
 from litgpt.loss import cross_entropy_max_z_loss
+
+from torch.distributed.fsdp import  MixedPrecision
+
 
 # Sanity check code
 # TODO: eventually remove this
@@ -77,7 +80,6 @@ def setup(
     context_stuffing: bool = True,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
-    activation_ckpt: bool = False,
 ):
     """Pretrain a model.
 
@@ -124,8 +126,12 @@ def setup(
     )
 
     if devices > 1:
-        fsdp_args = dict(auto_wrap_policy={Block}, state_dict_type="full", sharding_strategy=fsdp_strategy)
-        if activation_ckpt:
+        mixed_precision = MixedPrecision(param_dtype=torch.bfloat16)
+
+        fsdp_args = dict(state_dict_type="full", sharding_strategy=fsdp_strategy, mixed_precision=mixed_precision)
+        if not train.fsdp_full_wrap:
+            fsdp_args["auto_wrap_policy"] = {Block}
+        if train.activation_ckpt:
             fsdp_args["activation_checkpointing_policy"] = {Block}
         strategy = FSDPStrategy(**fsdp_args)
     else:
@@ -190,14 +196,18 @@ def main(
         model.transformer.wte.weight = model.lm_head.weight
     if train.max_seq_length:
         model.max_seq_length = train.max_seq_length
+
     assert train.seq_len_data <= model.max_seq_length
     if train.seq_len_data is None:
         train.seq_len_data = model.max_seq_length
+    
 
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters: {num_parameters(model):,}")
 
-    # model = torch.compile(model)
+    if train.torch_compile:
+        model = torch.compile(model)
+
     model = fabric.setup(module=model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -293,6 +303,7 @@ def fit(
     total_t0 = time.perf_counter()
     val_loss = ["n/a"] * len(val_dataloaders)
 
+    current_time = time.time()
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
 
     for train_data in train_iterator:
@@ -375,7 +386,9 @@ def fit(
                 "tokens": state["iter_num"] * train.micro_batch_size * train.seq_len_data,
                 "total_tokens": (state["iter_num"] * train.micro_batch_size * train.seq_len_data * fabric.world_size),
                 "learning_rate": lr,
+                "tokens_per_second": train.seq_len_data * train.global_batch_size / (time.time() - current_time),
             }
+            current_time = time.time()
             if train.z_loss:
                 metrics["z_loss"] = z_loss
             if isinstance(val_loss[0], float):
@@ -537,5 +550,7 @@ def validate_args(train: TrainArgs, eval: EvalArgs, initial_checkpoint_dir, resu
 
 if __name__ == "__main__":
     torch.set_float32_matmul_precision("high")
-
+    torch._dynamo.config.suppress_errors = "GENOMIC_DEBUG" not in os.environ 
+    # allow to continue when compiling failed
+    # can be disable by setting GENOMIC_DEBUG=1 as env var
     CLI(setup)
