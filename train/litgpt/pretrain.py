@@ -38,6 +38,9 @@ from litgpt.utils import (
 from litgpt.utils_metrics import ActivationNormMetric, get_grad_norm
 from litgpt.loss import cross_entropy_max_z_loss
 
+from torch.distributed.fsdp import  MixedPrecision
+
+
 # Sanity check code
 # TODO: eventually remove this
 # import torch._dynamo
@@ -123,7 +126,9 @@ def setup(
     )
 
     if devices > 1:
-        fsdp_args = dict(state_dict_type="full", sharding_strategy=fsdp_strategy)
+        mixed_precision = MixedPrecision(param_dtype=torch.bfloat16)
+
+        fsdp_args = dict(state_dict_type="full", sharding_strategy=fsdp_strategy, mixed_precision=mixed_precision)
         if not train.fsdp_full_wrap:
             fsdp_args["auto_wrap_policy"] = {Block}
         if train.activation_ckpt:
