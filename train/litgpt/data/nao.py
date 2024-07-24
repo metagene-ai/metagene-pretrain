@@ -60,11 +60,20 @@ class NAODataset(StreamingDataset):
             idx_offset = 0
             while remaining_toks_cnt > 0:
                 idx_offset += 1
+                opposed_idx = len(self) - idx_offset * self.batch_size - idx
+                # here we want to get a new index for the additional data. 
+                # there is two constraints on the idx:
+                # 1. it should be relativly far from the current index to avoid picking a sample that will be consume in a few steps or by another data rank
+                # 2. The new idx should be relativlty packed, and not random, otherwise we won't leverage the streaming feature that only download and cache part of the data
+                # 
+                # a solution is to consume the dataset in reverse when getting new samples.
+                # the idx_offset is here in the case of two consective samples beeing still smaller than the seq_len, which should almost never happen
                 try:
-                    new_entry = super().__getitem__(idx_offset * self.batch_size + idx)["token_ids"]
+                    new_entry = super().__getitem__(opposed_idx)["token_ids"]
                 except ValueError:
                     s_idx = self.rng.randint(low=0, high=10000)
                     new_entry = super().__getitem__(s_idx)["token_ids"]
+
                 new_toks = torch.tensor(ast.literal_eval(new_entry))
                 new_toks = new_toks[:remaining_toks_cnt-1]
                 new_toks = torch.cat([new_toks, self.eos_token_tensor], dim=0)
