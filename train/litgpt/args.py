@@ -37,7 +37,7 @@ class TrainArgs:
     z_loss_weight: float = 2e-4
 
     # Performance args
-    torch_compile: bool = False
+    torch_compile: bool = True
     activation_ckpt: bool = False
     fsdp_full_wrap: bool = False
 

@@ -44,8 +44,7 @@ train:
   epochs:
 
   # Total number of tokens to train on (type: Optional[int], default: 3000000000000)
-  max_tokens: 6_000_000_000 # TODO: change to a suitable value
-
+  max_tokens: 1_000_000_000_000
 
   # Limits the number of optimizer steps to run. (type: Optional[int], default: null)
   max_steps:
