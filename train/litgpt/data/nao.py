@@ -34,8 +34,9 @@ class NAODataset(StreamingDataset):
         streaming_kwargs: Dict[str, Any] = {},
         context_stuffing: bool = False,
         seed: Optional[int] = None,
+        download_timeout: Optional[int] = None,
     ) -> None:
-        super().__init__(batch_size=batch_size, streams=streams, remote=remote, local=local, split=split, **streaming_kwargs)
+        super().__init__(batch_size=batch_size, streams=streams, remote=remote, local=local, split=split,download_timeout=download_timeout, **streaming_kwargs)
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
         self.ignore_index = ignore_index
