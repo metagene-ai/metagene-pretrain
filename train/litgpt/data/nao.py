@@ -190,6 +190,7 @@ class NAO(DataModule):
                 max_seq_length=self.seq_length,
                 ignore_index=self.ignore_index,
                 context_stuffing=self.context_stuffing,
+                download_timeout=300
             )
 
             self.test_dataset = NAODataset(
@@ -200,6 +201,7 @@ class NAO(DataModule):
                 max_seq_length=self.seq_length,
                 ignore_index=self.ignore_index,
                 context_stuffing=self.context_stuffing,
+                download_timeout=300
             )
         else:
             self.train_dataset = FakeDataset(
