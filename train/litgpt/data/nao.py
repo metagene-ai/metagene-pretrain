@@ -61,7 +61,7 @@ class NAODataset(StreamingDataset):
             while remaining_toks_cnt > 0:
                 idx_offset += 1
                 try:
-                    new_entry = super().__getitem__(idx_offset + idx)["token_ids"]
+                    new_entry = super().__getitem__(idx_offset * self.batch_size + idx)["token_ids"]
                 except ValueError:
                     s_idx = self.rng.randint(low=0, high=10000)
                     new_entry = super().__getitem__(s_idx)["token_ids"]
