@@ -74,7 +74,7 @@ def setup(
     eval: EvalArgs = EvalArgs(interval=1000, max_iters=100),
     devices: Union[int, str] = "auto",
     tokenizer_dir: Optional[Path] = None,
-    logger_name: Literal["wandb", "tensorboard", "csv"] = "tensorboard",
+    logger_name: Literal["wandb", "tensorboard", "csv"] = "wandb",
     seed: int = 42,
     fsdp_strategy: str = "HYBRID_SHARD",
     context_stuffing: bool = True,
@@ -122,7 +122,7 @@ def setup(
     tokenizer = Tokenizer(tokenizer_dir) if tokenizer_dir is not None else None
 
     logger = choose_logger(
-        logger_name, out_dir, name=f"pretrain-{config.name}", resume=resume, log_interval=train.log_interval
+        logger_name, out_dir, name=f"pretrain-{config.name}", log_interval=train.log_interval
     )
 
     if devices > 1:
@@ -241,7 +241,7 @@ def main(
         resume = max(out_dir.rglob("step-*/*.pth"), key=(lambda p: int(p.parent.name.split("-")[1])))
     if resume:
         fabric.print(f"Resuming training from {resume}")
-        fabric.load(resume, state)
+        fabric.load(resume / "lit_model.pth", state)
 
     train_time = time.perf_counter()
     fit(fabric, devices, state, train_dataloader, val_dataloaders, out_dir, tokenizer_dir, train, eval)
