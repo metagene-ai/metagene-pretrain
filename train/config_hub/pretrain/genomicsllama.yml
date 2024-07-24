@@ -38,7 +38,7 @@ train:
   micro_batch_size: 48
 
   # Number of iterations with learning rate warmup active (type: int, default: 2000)
-  lr_warmup_steps: 200
+  lr_warmup_steps: 2000
 
   # Number of epochs to train on (type: Optional[int], default: null)
   epochs:
