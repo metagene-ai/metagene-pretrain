@@ -477,8 +477,6 @@ def get_dataloaders(
     here max_seq_length rules the dataloader but does not impact the model.
     """
     data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length)
-    with fabric.rank_zero_first():
-        data.prepare_data()
     data.setup(rank=fabric.local_rank)
     train_dataloader = data.train_dataloader()
     val_dataloader = data.val_dataloader()
