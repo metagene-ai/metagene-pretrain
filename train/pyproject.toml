@@ -9,7 +9,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 
 dependencies = [
-    "torch>=2.2.0",
+    "torch==2.3.1",
     "lightning>=2.3.3",
     "jsonargparse[signatures]>=4.27.6",
 ]
