@@ -78,6 +78,8 @@ train:
 
   log_stability_interval: 500
 
+  z_loss: True
+
 # Evaluation-related arguments. See ``litgpt.args.EvalArgs`` for details
 eval:
 
