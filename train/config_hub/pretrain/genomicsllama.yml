@@ -26,7 +26,7 @@ data: NAO
 train:
 
   # Number of optimizer steps between saving checkpoints (type: Optional[int], default: 1000)
-  save_interval: 4000
+  save_interval: 1000
 
   # Number of iterations between logging calls (type: int, default: 1)
   log_interval: 1
@@ -84,7 +84,7 @@ train:
 eval:
 
   # Number of optimizer steps between evaluation calls (type: int, default: 1000)
-  interval: 1000
+  interval: 250
 
   # Number of tokens to generate (type: Optional[int], default: null)
   max_new_tokens:
