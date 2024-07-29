@@ -32,7 +32,7 @@ train:
   log_interval: 1
 
   # Number of samples between optimizer steps across data-parallel ranks (type: int, default: 512)
-  global_batch_size: 7680
+  global_batch_size: 30720
 
   # Number of samples per data-parallel rank (type: int, default: 4)
   micro_batch_size: 48
@@ -59,7 +59,7 @@ train:
   tie_embeddings:
 
   #   (type: float, default: 0.0004)
-  learning_rate: 3e-4
+  learning_rate: 6e-4
 
   #   (type: float, default: 0.1)
   weight_decay: 0.1
