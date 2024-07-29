@@ -176,21 +176,21 @@ class NAO(DataModule):
     
     def setup(self, rank) -> None:
         if not self.fake_data:
-            rank_id = f"rank_{rank}_id"
+            # rank_id = f"rank_{rank}_id"
+            streaming.base.util.clean_stale_shared_memory()
 
             all_stream = Stream(
                 remote = f"s3://mgfm-bucket-01/streams",
-                local = f"/tmp/mds-cache/all_streams_{rank_id}",
+                local = f"/tmp/mds-cache/train",
                 repeat = 1,
             )
             val_stream = Stream(
                 remote = f"s3://mgfm-bucket-01/streams/stream_MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz_small",
-                local = f"/tmp/mds-cache/stream_MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz_small_{rank_id}",
+                local = f"/tmp/mds-cache/val",
                 repeat = 1,
             )
             stream_list = [all_stream, val_stream]
 
-            streaming.base.util.clean_stale_shared_memory()
             self.train_dataset = NAODataset(
                 batch_size=self.batch_size,
                 streams = stream_list[:-1],
