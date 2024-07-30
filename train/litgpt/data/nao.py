@@ -194,7 +194,7 @@ class NAO(DataModule):
             self.train_dataset = NAODataset(
                 batch_size=self.batch_size,
                 streams = stream_list[:-1],
-                streaming_kwargs = {"shuffle": True},
+                streaming_kwargs = {"shuffle": True, "shuffle_block_size": 50_000_000, "num_canonical_nodes": 1},
                 tokenizer=self.tokenizer,
                 max_seq_length=self.seq_length,
                 ignore_index=self.ignore_index,
@@ -204,7 +204,7 @@ class NAO(DataModule):
             self.test_dataset = NAODataset(
                 batch_size=self.batch_size,
                 streams = stream_list[-1:], # using final stream in list as a validation set
-                streaming_kwargs = {"shuffle": True},
+                streaming_kwargs = {"shuffle": True, "shuffle_block_size": 50_000_000, "num_canonical_nodes": 1},
                 tokenizer=self.tokenizer,
                 max_seq_length=self.seq_length,
                 ignore_index=self.ignore_index,
