@@ -12,6 +12,7 @@ def _remove_fsdp_prefix(name: str) -> str:
             return name.replace(prefix, "")
     return name
 
+@torch.compiler.disable()
 @torch.no_grad()
 def log_activations_hook(
     _mod: torch.nn.Module,
