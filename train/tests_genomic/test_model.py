@@ -233,6 +233,9 @@ def test_context_stuffing_backward(config: Config, precision: str, attention_imp
     model = GPT(config)
     model = fabric.setup(model)
 
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+
+    optimizer = fabric.setup_optimizers(optimizer)
 
     BATCH_SIZE = 16
     SEQ_LEN = 8
@@ -246,7 +249,7 @@ def test_context_stuffing_backward(config: Config, precision: str, attention_imp
     target = batch[1:]
 
     seqlens = [SEQ_LEN//2 for _ in range(2*BATCH_SIZE)]
-
+    
 
     for _ in range(ITER):
 
@@ -262,4 +265,7 @@ def test_context_stuffing_backward(config: Config, precision: str, attention_imp
         fabric.backward(loss)
 
         assert not loss.isnan().any()
+
+        optimizer.step()
+        optimizer.zero_grad()
 
