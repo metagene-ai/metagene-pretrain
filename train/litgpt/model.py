@@ -10,6 +10,7 @@ import math
 from typing import Any, Iterable, Optional, Tuple
 
 import torch
+from torch import IntTensor
 import torch.nn as nn
 from typing_extensions import Self
 
@@ -85,7 +86,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None, seqlens: Optional[Iterable[int]] = None) -> torch.Tensor:
+    def forward(self, idx: torch.Tensor, input_pos: Optional[torch.Tensor] = None, seqlens: Optional[IntTensor] = None) -> torch.Tensor:
         T = idx.size(1)
         if self.max_seq_length < T:
             raise ValueError(f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}.")
@@ -168,7 +169,7 @@ class Block(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
-        seqlens: Optional[Iterable[int]] = None,
+        seqlens: Optional[IntTensor] = None,
     ) -> torch.Tensor:
         n_1 = self.norm_1(x)
         h = self.attn(n_1, cos, sin, mask, input_pos, seqlens)
@@ -207,7 +208,7 @@ class CausalSelfAttention(nn.Module):
         sin: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         input_pos: Optional[torch.Tensor] = None,
-        seqlens: Optional[Iterable[int]] = None,
+        seqlens: Optional[IntTensor] = None,
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         qkv = self.attn(x)
@@ -249,7 +250,7 @@ class CausalSelfAttention(nn.Module):
         return self.proj(y)
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None, seqlens: Optional[Iterable[int]] = None
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, mask: Optional[torch.Tensor] = None, seqlens: Optional[IntTensor] = None
     ) -> torch.Tensor:
 
         if seqlens is not None:
@@ -305,7 +306,8 @@ class CausalSelfAttention(nn.Module):
             op=xops.MemoryEfficientAttentionFlashAttentionOp,
         )      
 
-    def _xformers_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
+    def _xformers_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: IntTensor):
+        seqlens = seqlens.to("cpu").tolist()
         attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(q_seqlen=seqlens)
         attn_bias = attn_bias.make_causal()
 
@@ -329,11 +331,10 @@ class CausalSelfAttention(nn.Module):
         # q/k/b is [b, nh, t, hs] but fa2 expected [b , t, nh, hs]
         return flash_attn_func(q, k, v, causal=True, softmax_scale=scale)      
 
-    def _fa_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: Iterable[int]):
+    def _fa_attention_with_seqlens(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, scale: float, seqlens: IntTensor):
         scale = 1.0 / math.sqrt(self.config.head_size)
         b = q.shape[0]
-        seqlens = torch.tensor(seqlens, dtype=torch.int32)
-        cu_seqlens = torch.concat([torch.tensor([0]), seqlens.cumsum(0)], dim=0).to(torch.int32).to(q.device)
+        cu_seqlens = torch.concat([torch.tensor([0]).to(q.device), seqlens.cumsum(0)], dim=0).to(torch.int32).to(q.device)
         max_seqlen = seqlens.max().item()
 
         q = rearrange(q, 'b n t h -> (b t) n h')

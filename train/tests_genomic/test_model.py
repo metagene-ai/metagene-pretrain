@@ -161,7 +161,7 @@ def test_context_stuffing_attn(config: Config, precision: str, attention_impl: s
     input = emb(input_raw)
 
     input_stuff_raw = torch.Tensor([[2, 1, 4, 8, 1, 4, 2, 7]]).long().to(fabric.device)
-    seqlens = [4, 4]
+    seqlens = torch.Tensor([4, 4]).int().to(fabric.device)
     input_stuff = emb(input_stuff_raw)
 
     cos, sin = get_cos_and_sin_attn(config, SEQ_LEN, fabric.device)
@@ -204,6 +204,8 @@ def test_context_stuffing_attn_2(config: Config, precision: str, attention_impl:
     seq = [2,1,4,8] 
     input_stuff_raw = torch.Tensor([seq + seq]).long().to(fabric.device)
     seqlens = [len(seq), len(seq)]
+    seqlens = torch.Tensor(seqlens).int().to(fabric.device)
+
     input_stuff = emb(input_stuff_raw)
 
 
@@ -249,7 +251,8 @@ def test_context_stuffing_backward(config: Config, precision: str, attention_imp
     target = batch[1:]
 
     seqlens = [SEQ_LEN//2 for _ in range(2*BATCH_SIZE)]
-    
+    seqlens = torch.Tensor(seqlens).int().to(fabric.device)
+
 
     for _ in range(ITER):
 

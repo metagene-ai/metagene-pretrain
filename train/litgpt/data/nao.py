@@ -133,7 +133,7 @@ def _context_stuffing_collate_fn(samples: List[Dict[str, torch.Tensor]], max_seq
         # Truncate if needed
         if max_seq_length > 0:
             batched[key] = batched[key][:, :max_seq_length+1] # +1 here because we actually want one more token that the max_seq_length because of the target, input
-    batched["seqlens"] =  [x for sample in samples for x in sample["seqlens"]]
+    batched["seqlens"] =  torch.Tensor([x for sample in samples for x in sample["seqlens"]]).int()
     return batched
 
 
