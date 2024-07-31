@@ -265,6 +265,9 @@ def fit(
     optimizer = state["optimizer"]
 
     # validate(fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
+    # validate(fabric=fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
+    # we are removing because torch compile must be first run with training for better performance
+
     throughput = ThroughputMonitor(fabric, window_size=5)
 
     with torch.device("meta"):
@@ -447,12 +450,15 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
         if k >= max_iters:
             break
 
-        _, T = batch["input_ids"].shape
+        bs, T = batch["input_ids"].shape
+        if bs != train.micro_batch_size:
+            break # the bs that micro batch size being smaller happened only for the last batch of the val stream but it breaks torch.compile
         input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
         targets = batch["labels"][:, 1 : T].contiguous().long()
         seqlens = batch.get("seqlens", None)
 
         logits = model(input_ids, seqlens=seqlens)
+
         loss = chunked_cross_entropy(logits, targets)
         losses.append(loss)
 
