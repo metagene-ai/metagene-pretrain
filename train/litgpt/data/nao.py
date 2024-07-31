@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+import random
 from typing import Any, Dict, Optional, Sequence, List
 import numpy as np
 import ast
@@ -98,6 +99,7 @@ class FakeDataset(Dataset):
         self.max_seq_length = max_seq_length
         assert self.max_seq_length % 2 == 0, "max_seq_length must be even"
         self.context_stuffing = context_stuffing
+        self.seq_lens = [ [self.max_seq_length//i]*i for i in range(2, 4) ]
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         max_len = self.max_seq_length + 1
@@ -105,7 +107,9 @@ class FakeDataset(Dataset):
         toks = torch.randint(low=0, high=100, size=(max_len,), dtype=torch.int64)  # Adjusted to specify range and size
         labels = toks.clone()
         if self.context_stuffing:
-            return {"input_ids": toks, "labels": labels, "seqlens": [self.max_seq_length//2, self.max_seq_length//2]}
+            i = random.randint(0, 1)
+            
+            return {"input_ids": toks, "labels": labels, "seqlens": self.seq_lens[i]}
         else:
             return {"input_ids": toks, "labels": labels}
 
