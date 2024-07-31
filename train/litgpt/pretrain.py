@@ -264,7 +264,6 @@ def fit(
     model = state["model"]
     optimizer = state["optimizer"]
 
-    # validate(fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
     # validate(fabric=fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
     # we are removing because torch compile must be first run with training for better performance
 
@@ -465,6 +464,7 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
             # seqlens has a dynamic shape but one dimension, this allow to still torch compile
 
         logits = model(input_ids, seqlens=seqlens)
+
 
         loss = chunked_cross_entropy(logits, targets)
         losses.append(loss)
