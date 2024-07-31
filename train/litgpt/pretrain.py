@@ -264,7 +264,7 @@ def fit(
     model = state["model"]
     optimizer = state["optimizer"]
 
-    validate(fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
+    # validate(fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
     throughput = ThroughputMonitor(fabric, window_size=5)
 
     with torch.device("meta"):
@@ -327,9 +327,7 @@ def fit(
         _, T = train_data["input_ids"].shape
         input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
         targets = train_data["labels"][:, 1 : T].contiguous().long()
-
         seqlens = train_data.get("seqlens", None)
-        seqlens = None
 
         
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
@@ -452,8 +450,9 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
         _, T = batch["input_ids"].shape
         input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
         targets = batch["labels"][:, 1 : T].contiguous().long()
+        seqlens = batch.get("seqlens", None)
 
-        logits = model(input_ids)
+        logits = model(input_ids, seqlens=seqlens)
         loss = chunked_cross_entropy(logits, targets)
         losses.append(loss)
 
