@@ -331,6 +331,9 @@ def fit(
         input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
         targets = train_data["labels"][:, 1 : T].contiguous().long()
         seqlens = train_data.get("seqlens", None)
+        if seqlens is not None:
+            torch._dynamo.mark_dynamic(seqlens, 0)
+
 
         
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
@@ -456,8 +459,13 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
         input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
         targets = batch["labels"][:, 1 : T].contiguous().long()
         seqlens = batch.get("seqlens", None)
+        if seqlens is not None:
+            torch._dynamo.mark_dynamic(seqlens, 0)
+            # https://pytorch.org/docs/stable/torch.compiler_dynamic_shapes.html
+            # seqlens has a dynamic shape but one dimension, this allow to still torch compile
 
         logits = model(input_ids, seqlens=seqlens)
+
 
         loss = chunked_cross_entropy(logits, targets)
         losses.append(loss)
