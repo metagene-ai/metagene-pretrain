@@ -83,6 +83,10 @@ class NAODataset(StreamingDataset):
                 seqlens.append(len(new_toks))
                 toks = torch.cat([toks, new_toks], dim=0)
                 remaining_toks_cnt = max_len - len(toks)
+
+            # Reduce recorded size of final packed sequence by 1
+            seqlens[-1] = seqlens[-1] - 1
+
             assert len(toks) == max_len, f"{len(toks)} != {max_len}"
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
