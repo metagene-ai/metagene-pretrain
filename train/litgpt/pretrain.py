@@ -223,7 +223,8 @@ def main(
     print(f"Train dataset: {len(data.train_dataset)} samples | {len(train_dataloader)} batches")
     for i, val_dataloader in enumerate(val_dataloaders):
         print(f"Valid dataset {i}: {len(val_dataloader)} batches")
-    dataloaders = fabric.setup_dataloaders(*dataloaders)
+    # dataloaders = fabric.setup_dataloaders(*dataloaders)
+    # we don't use litgpt built it sampler for multi rank / multi node because mosaic streaming do it for us
     train_dataloader, val_dataloaders = dataloaders[0], dataloaders[1:]
 
     if initial_checkpoint_dir:
@@ -328,10 +329,11 @@ def fit(
         iter_t0 = time.perf_counter()
         
         _, T = train_data["input_ids"].shape
-        input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
-        targets = train_data["labels"][:, 1 : T].contiguous().long()
+        input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long().to(fabric.device)
+        targets = train_data["labels"][:, 1 : T].contiguous().long().to(fabric.device)
         seqlens = train_data.get("seqlens", None)
         if seqlens is not None:
+            seqlens = seqlens.to(fabric.device)
             torch._dynamo.mark_dynamic(seqlens, 0)
 
 
@@ -456,10 +458,11 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
         bs, T = batch["input_ids"].shape
         if bs != train.micro_batch_size:
             break # the bs that micro batch size being smaller happened only for the last batch of the val stream but it breaks torch.compile
-        input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
-        targets = batch["labels"][:, 1 : T].contiguous().long()
+        input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long().to(fabric.device)
+        targets = batch["labels"][:, 1 : T].contiguous().long().to(fabric.device)
         seqlens = batch.get("seqlens", None)
         if seqlens is not None:
+            seqlens = seqlens.to(fabric.device)
             torch._dynamo.mark_dynamic(seqlens, 0)
             # https://pytorch.org/docs/stable/torch.compiler_dynamic_shapes.html
             # seqlens has a dynamic shape but one dimension, this allow to still torch compile
