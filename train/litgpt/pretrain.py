@@ -264,6 +264,7 @@ def fit(
     model = state["model"]
     optimizer = state["optimizer"]
 
+
     # validate(fabric=fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
     # we are removing because torch compile must be first run with training for better performance
 
