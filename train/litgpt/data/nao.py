@@ -45,9 +45,11 @@ class NAODataset(StreamingDataset):
         self.eos_token_tensor = torch.tensor([5])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        max_len = self.max_seq_length + 1
+        # +1 here because we actually want one more token that the max_seq_length because of the target, input
         example = super().__getitem__(idx)["token_ids"]
         toks = torch.tensor(ast.literal_eval(example))
-        toks = toks[:self.max_seq_length-1]
+        toks = toks[:max_len-1]
         toks = torch.cat([toks, self.eos_token_tensor], dim=0)
         toks = toks - 1
         if not self.context_stuffing:
@@ -55,7 +57,7 @@ class NAODataset(StreamingDataset):
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64)}
         else:
             seqlens = []
-            remaining_toks_cnt = self.max_seq_length - len(toks)
+            remaining_toks_cnt = max_len - len(toks)
             seqlens.append(len(toks))
             idx_offset = 0
             while remaining_toks_cnt > 0:
@@ -80,8 +82,12 @@ class NAODataset(StreamingDataset):
                 new_toks = new_toks - 1
                 seqlens.append(len(new_toks))
                 toks = torch.cat([toks, new_toks], dim=0)
-                remaining_toks_cnt = self.max_seq_length - len(toks)
-            assert len(toks) == self.max_seq_length, f"{len(toks)} != {self.max_seq_length}"
+                remaining_toks_cnt = max_len - len(toks)
+
+            # Reduce recorded size of final packed sequence by 1
+            seqlens[-1] = seqlens[-1] - 1
+
+            assert len(toks) == max_len, f"{len(toks)} != {max_len}"
             labels = toks.clone()
             return {"input_ids": toks.type(torch.int64), "labels": labels.type(torch.int64), "seqlens": seqlens} 
         
@@ -98,7 +104,9 @@ class FakeDataset(Dataset):
         self.context_stuffing = context_stuffing
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        toks = torch.randint(low=0, high=100, size=(self.max_seq_length,), dtype=torch.int64)  # Adjusted to specify range and size
+        max_len = self.max_seq_length + 1
+        # +1 here because we actually want one more token that the max_seq_length because of the target, input
+        toks = torch.randint(low=0, high=100, size=(max_len,), dtype=torch.int64)  # Adjusted to specify range and size
         labels = toks.clone()
         if self.context_stuffing:
             return {"input_ids": toks, "labels": labels, "seqlens": [self.max_seq_length//2, self.max_seq_length//2]}
@@ -124,8 +132,7 @@ def _context_stuffing_collate_fn(samples: List[Dict[str, torch.Tensor]], max_seq
         batched[key] = torch.stack([sample[key] for sample in samples])
         # Truncate if needed
         if max_seq_length > 0:
-            batched[key] = batched[key][:, :max_seq_length]
-
+            batched[key] = batched[key][:, :max_seq_length+1] # +1 here because we actually want one more token that the max_seq_length because of the target, input
     batched["seqlens"] =  [x for sample in samples for x in sample["seqlens"]]
     return batched
 

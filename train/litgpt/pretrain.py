@@ -264,6 +264,7 @@ def fit(
     model = state["model"]
     optimizer = state["optimizer"]
 
+
     # validate(fabric=fabric, model, val_dataloaders[0], max_iters=2, train=train)  # sanity check
     # we are removing because torch compile must be first run with training for better performance
 
@@ -325,17 +326,12 @@ def fit(
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()
-        if isinstance(train_data, dict):
-            _, T = train_data["input_ids"].shape
-            input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
-            targets = train_data["labels"][:, 1 : T].contiguous().long()
+        
+        _, T = train_data["input_ids"].shape
+        input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
+        targets = train_data["labels"][:, 1 : T].contiguous().long()
+        seqlens = train_data.get("seqlens", None)
 
-            seqlens = train_data.get("seqlens", None)
-            seqlens = None
-        else:
-            input_ids = train_data[:, 0 : train.seq_len_data].contiguous().long()
-            targets = train_data[:, 1 : (train.seq_len_data + 1)].contiguous().long()
-            # seqlens = [32] * train.micro_batch_size * 2
         
         is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
@@ -453,18 +449,16 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
     for k, batch in enumerate(val_dataloader):
         if k >= max_iters:
             break
-        if isinstance(batch, dict):
-            # fabric.print(batch['input_ids'].shape)
-            # fabric.print(batch['labels'].shape)
-            bs, T = batch["input_ids"].shape
-            if bs != train.micro_batch_size:
-                break # the bs that micro batch size being smaller happened only for the last batch of the val stream but it breaks torch.compile
-            input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
-            targets = batch["labels"][:, 1 : T].contiguous().long()
-        else:
-            input_ids = batch[:, 0 : train.seq_len_data].contiguous().long()
-            targets = batch[:, 1 : (train.seq_len_data + 1)].contiguous().long()
-        logits = model(input_ids)
+
+        bs, T = batch["input_ids"].shape
+        if bs != train.micro_batch_size:
+            break # the bs that micro batch size being smaller happened only for the last batch of the val stream but it breaks torch.compile
+        input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
+        targets = batch["labels"][:, 1 : T].contiguous().long()
+        seqlens = batch.get("seqlens", None)
+
+        logits = model(input_ids, seqlens=seqlens)
+
         loss = chunked_cross_entropy(logits, targets)
         losses.append(loss)
 
