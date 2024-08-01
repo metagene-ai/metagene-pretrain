@@ -80,6 +80,7 @@ def setup(
     context_stuffing: bool = True,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
+    shuffle_block_size: int = 50_000_000,
 ):
     """Pretrain a model.
 
@@ -162,6 +163,7 @@ def setup(
         tokenizer,
         train,
         eval,
+        shuffle_block_size,
     )
 
 
@@ -178,6 +180,7 @@ def main(
     tokenizer: Optional[Tokenizer],
     train: TrainArgs,
     eval: EvalArgs,
+    shuffle_block_size: int,
 ) -> None:
     validate_args(train, eval, initial_checkpoint_dir, resume)
 
@@ -218,7 +221,7 @@ def main(
     )
     optimizer = fabric.setup_optimizers(optimizer)
 
-    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, train.seq_len_data)
+    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, train.seq_len_data, shuffle_block_size)
     dataloaders = [train_dataloader] + val_dataloaders
     print(f"Train dataset: {len(data.train_dataset)} samples | {len(train_dataloader)} batches")
     for i, val_dataloader in enumerate(val_dataloaders):
@@ -480,12 +483,12 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
 
 
 def get_dataloaders(
-    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, max_seq_length: int
+    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, max_seq_length: int, shuffle_block_size
 ) -> Tuple[DataLoader, List[DataLoader]]:
     """
     here max_seq_length rules the dataloader but does not impact the model.
     """
-    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length)
+    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length, shuffle_block_size=shuffle_block_size)
     data.setup(rank=fabric.local_rank)
     train_dataloader = data.train_dataloader()
     val_dataloader = data.val_dataloader()
