@@ -5,6 +5,10 @@ This directory contains code for (pre-)training of the metagenomic foundation mo
 Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the LitGPT README
 [here](README-litgpt.md).
 
+## Selecting `index.json` file for training
+
+See [select_training_index_file.sh](select_training_index_file.sh).
+
 ## Quick Tour
 
 - Data
