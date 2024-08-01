@@ -80,6 +80,7 @@ def setup(
     context_stuffing: bool = True,
     attention_impl: Literal["sdpa", "fa", "xformers"] = "sdpa",
     fake_data: bool = False,
+    shuffle_block_size: int = 50_000_000,
 ):
     """Pretrain a model.
 
@@ -162,6 +163,7 @@ def setup(
         tokenizer,
         train,
         eval,
+        shuffle_block_size,
     )
 
 
@@ -178,6 +180,7 @@ def main(
     tokenizer: Optional[Tokenizer],
     train: TrainArgs,
     eval: EvalArgs,
+    shuffle_block_size: int,
 ) -> None:
     validate_args(train, eval, initial_checkpoint_dir, resume)
 
@@ -218,12 +221,13 @@ def main(
     )
     optimizer = fabric.setup_optimizers(optimizer)
 
-    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, train.seq_len_data)
+    train_dataloader, val_dataloaders = get_dataloaders(fabric, data, tokenizer, train, train.seq_len_data, shuffle_block_size)
     dataloaders = [train_dataloader] + val_dataloaders
     print(f"Train dataset: {len(data.train_dataset)} samples | {len(train_dataloader)} batches")
     for i, val_dataloader in enumerate(val_dataloaders):
         print(f"Valid dataset {i}: {len(val_dataloader)} batches")
-    dataloaders = fabric.setup_dataloaders(*dataloaders)
+    # dataloaders = fabric.setup_dataloaders(*dataloaders)
+    # we don't use litgpt built it sampler for multi rank / multi node because mosaic streaming do it for us
     train_dataloader, val_dataloaders = dataloaders[0], dataloaders[1:]
 
     if initial_checkpoint_dir:
@@ -328,10 +332,11 @@ def fit(
         iter_t0 = time.perf_counter()
         
         _, T = train_data["input_ids"].shape
-        input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long()
-        targets = train_data["labels"][:, 1 : T].contiguous().long()
+        input_ids = train_data["input_ids"][:, 0 : T - 1].contiguous().long().to(fabric.device)
+        targets = train_data["labels"][:, 1 : T].contiguous().long().to(fabric.device)
         seqlens = train_data.get("seqlens", None)
         if seqlens is not None:
+            seqlens = seqlens.to(fabric.device)
             torch._dynamo.mark_dynamic(seqlens, 0)
 
 
@@ -456,10 +461,11 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
         bs, T = batch["input_ids"].shape
         if bs != train.micro_batch_size:
             break # the bs that micro batch size being smaller happened only for the last batch of the val stream but it breaks torch.compile
-        input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long()
-        targets = batch["labels"][:, 1 : T].contiguous().long()
+        input_ids = batch["input_ids"][:, 0 : T - 1].contiguous().long().to(fabric.device)
+        targets = batch["labels"][:, 1 : T].contiguous().long().to(fabric.device)
         seqlens = batch.get("seqlens", None)
         if seqlens is not None:
+            seqlens = seqlens.to(fabric.device)
             torch._dynamo.mark_dynamic(seqlens, 0)
             # https://pytorch.org/docs/stable/torch.compiler_dynamic_shapes.html
             # seqlens has a dynamic shape but one dimension, this allow to still torch compile
@@ -477,12 +483,12 @@ def validate(fabric: L.Fabric, model: nn.Module, val_dataloader: DataLoader, max
 
 
 def get_dataloaders(
-    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, max_seq_length: int
+    fabric: L.Fabric, data: DataModule, tokenizer: Tokenizer, train: TrainArgs, max_seq_length: int, shuffle_block_size
 ) -> Tuple[DataLoader, List[DataLoader]]:
     """
     here max_seq_length rules the dataloader but does not impact the model.
     """
-    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length)
+    data.connect(tokenizer=tokenizer, batch_size=train.micro_batch_size, max_seq_length=max_seq_length, shuffle_block_size=shuffle_block_size)
     data.setup(rank=fabric.local_rank)
     train_dataloader = data.train_dataloader()
     val_dataloader = data.val_dataloader()

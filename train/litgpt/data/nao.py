@@ -103,7 +103,7 @@ class FakeDataset(Dataset):
         self.max_seq_length = max_seq_length
         assert self.max_seq_length % 2 == 0, "max_seq_length must be even"
         self.context_stuffing = context_stuffing
-        self.seq_lens = [ [self.max_seq_length//i]*i for i in range(2, 4) ]
+        self.seq_lens = [ [self.max_seq_length//2]*2, [self.max_seq_length//4]*4 ]
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         max_len = self.max_seq_length + 1
@@ -113,7 +113,7 @@ class FakeDataset(Dataset):
         if self.context_stuffing:
             i = random.randint(0, 1)
             
-            return {"input_ids": toks, "labels": labels, "seqlens": self.seq_lens[i]}
+            return {"input_ids": toks, "labels": labels, "seqlens": self.seq_lens[1]}
         else:
             return {"input_ids": toks, "labels": labels}
 
@@ -179,11 +179,12 @@ class NAO(DataModule):
 
 
     def connect(
-        self, tokenizer: Optional[Tokenizer] = None, batch_size: int = 1, max_seq_length: Optional[int] = None
+        self, tokenizer: Optional[Tokenizer] = None, batch_size: int = 1, max_seq_length: Optional[int] = None, shuffle_block_size: int = 50_000_000
     ) -> None:
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.seq_length = -1 if max_seq_length is None else max_seq_length
+        self.shuffle_block_size = shuffle_block_size
     
     def setup(self, rank) -> None:
         if not self.fake_data:
@@ -205,7 +206,7 @@ class NAO(DataModule):
             self.train_dataset = NAODataset(
                 batch_size=self.batch_size,
                 streams = stream_list[:-1],
-                streaming_kwargs = {"shuffle": True, "shuffle_block_size": 50_000_000, "num_canonical_nodes": 1},
+                streaming_kwargs = {"shuffle": True, "shuffle_block_size": self.shuffle_block_size, "num_canonical_nodes": 1},
                 tokenizer=self.tokenizer,
                 max_seq_length=self.seq_length,
                 ignore_index=self.ignore_index,
@@ -215,7 +216,7 @@ class NAO(DataModule):
             self.test_dataset = NAODataset(
                 batch_size=self.batch_size,
                 streams = stream_list[-1:], # using final stream in list as a validation set
-                streaming_kwargs = {"shuffle": True, "shuffle_block_size": 50_000_000, "num_canonical_nodes": 1},
+                streaming_kwargs = {"shuffle": True, "shuffle_block_size": self.shuffle_block_size, "num_canonical_nodes": 1},
                 tokenizer=self.tokenizer,
                 max_seq_length=self.seq_length,
                 ignore_index=self.ignore_index,
