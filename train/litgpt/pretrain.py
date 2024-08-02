@@ -55,6 +55,7 @@ def setup(
     out_dir: Path = Path("out/pretrain"),
     initial_checkpoint_dir: Optional[Path] = None,
     resume: Union[bool, Path] = False,
+    new_index_file: Optional[bool] = False,
     data: Optional[DataModule] = None,
     train: TrainArgs = TrainArgs(
         save_interval=1000,
@@ -95,6 +96,7 @@ def setup(
             Useful for continued pretraining. Mutually exclusive with ``resume``.
         resume: Path to a checkpoint directory to resume from in case training was interrupted, or ``True`` to resume
             from the latest checkpoint in ``out_dir``.
+        new_index_file: Set to ``True`` if continuing training with a new index.json file.
         data: Data-related arguments. If not provided, the default is ``litgpt.data.TinyLlama``.
         train: Training-related arguments. See ``litgpt.args.TrainArgs`` for details.
         eval: Evaluation-related arguments. See ``litgpt.args.EvalArgs`` for details.
@@ -158,6 +160,7 @@ def setup(
         seed,
         initial_checkpoint_dir,
         resume,
+        new_index_file,
         config,
         data,
         out_dir,
@@ -175,6 +178,7 @@ def main(
     seed: int,
     initial_checkpoint_dir: Optional[Path],
     resume: Union[bool, Path],
+    new_index_file: Optional[bool],
     config: Config,
     data: DataModule,
     out_dir: Path,
@@ -184,7 +188,7 @@ def main(
     eval: EvalArgs,
     shuffle_block_size: int,
 ) -> None:
-    validate_args(train, eval, initial_checkpoint_dir, resume)
+    validate_args(train, eval, initial_checkpoint_dir, resume, new_index_file)
 
     if fabric.global_rank == 0:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +252,11 @@ def main(
     if resume:
         fabric.print(f"Resuming training from {resume}")
         fabric.load(resume / "lit_model.pth", state)
+        if new_index_file:
+            sd = train_dataloader.state_dict()
+            sd["epoch"] = -1
+            sd["sample_in_epoch"] = 0
+            train_dataloader.load_state_dict(sd)
 
     train_time = time.perf_counter()
     fit(fabric, devices, state, train_dataloader, val_dataloaders, out_dir, tokenizer_dir, train, eval)
@@ -565,7 +574,7 @@ def init_out_dir(out_dir: Path) -> Path:
     return out_dir
 
 
-def validate_args(train: TrainArgs, eval: EvalArgs, initial_checkpoint_dir, resume) -> None:
+def validate_args(train: TrainArgs, eval: EvalArgs, initial_checkpoint_dir, resume, new_index_file) -> None:
     issues = []
     unsupported = [(train, ["max_steps", "epochs"]), (eval, ["max_new_tokens"])]
     for args, names in unsupported:
@@ -579,6 +588,8 @@ def validate_args(train: TrainArgs, eval: EvalArgs, initial_checkpoint_dir, resu
                 issues.append(f"{__file__} requires the {name!r} argument. This is set in {args}")
     if initial_checkpoint_dir and resume:
         issues.append("Can't provide both `--resume` and `--initial_checkpoint_dir`. Choose one.")
+    if new_index_file and not resume:
+        issues.append("If you set `--new_index_file` True, then must also set `--resume` with a path.")
     if issues:
         raise ValueError("\n".join(issues))
 
