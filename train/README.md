@@ -9,12 +9,18 @@ Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the L
 
 ### (1) Selecting or modifying the `index.json` file for pretraining data
 
-See [scripts/select_training_index_file.sh](scripts/select_training_index_file.sh).
+See [scripts/select_training_index_file.sh](scripts/select_training_index_file.sh). We
+will need to update this script and then run:
+```bash
+source scripts/select_training_index_file.sh
+```
 
 Note: after we run this script to modify the index.json file on S3, we will need to resume
 training with both `--resume <path>` and ``--new_index_file True`` flags.
 
 ### (2) Uploading checkpoints to S3 bucket
+See [scripts/upload_checkpoints_to_s3.sh](scripts/upload_checkpoints_to_s3.sh) for
+details.
 
 From within this directory (`train/`), run:
 ```bash
