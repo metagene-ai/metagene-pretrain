@@ -5,9 +5,29 @@ This directory contains code for (pre-)training of the metagenomic foundation mo
 Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the LitGPT README
 [here](README-litgpt.md).
 
-## Selecting `index.json` file for training
+## S3 Scripts
 
-See [select_training_index_file.sh](select_training_index_file.sh).
+### (1) Selecting or modifying the `index.json` file for pretraining data
+
+See [scripts/select_training_index_file.sh](scripts/select_training_index_file.sh). We
+will need to update this script and then run:
+```bash
+source scripts/select_training_index_file.sh
+```
+
+Note: after we run this script to modify the index.json file on S3, we will need to resume
+training with both `--resume <path>` and ``--new_index_file True`` flags.
+
+### (2) Uploading checkpoints to S3 bucket
+See [scripts/upload_checkpoints_to_s3.sh](scripts/upload_checkpoints_to_s3.sh) for
+details.
+
+From within this directory (`train/`), run:
+```bash
+source scripts/upload_checkpoints_to_s3.sh
+```
+which will upload all checkpoints to the S3 bucket. This assumes that all checkpoints
+are in subdirectories of `out/pretrain/genomics-llama/`.
 
 ## Quick Tour
 
