@@ -7,17 +7,21 @@ Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the L
 
 ## S3 Scripts
 
-**Selecting or modifying the `index.json` file for pretraining data**
+### (1) Selecting or modifying the `index.json` file for pretraining data
 
 See [scripts/select_training_index_file.sh](scripts/select_training_index_file.sh).
 
-**Uploading checkpoints to S3 bucket**
+Note: after we run this script to modify the index.json file on S3, we will need to resume
+training with both `--resume <path>` and ``--new_index_file True`` flags.
+
+### (2) Uploading checkpoints to S3 bucket
 
 From within this directory (`train/`), run:
 ```bash
 source scripts/upload_checkpoints_to_s3.sh
 ```
-This assumes the checkpoints are in subdirectories of `out/pretrain/genomics-llama/`.
+which will upload all checkpoints to the S3 bucket. This assumes that all checkpoints
+are in subdirectories of `out/pretrain/genomics-llama/`.
 
 ## Quick Tour
 
