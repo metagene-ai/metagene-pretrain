@@ -117,7 +117,9 @@ def setup(
         model_name = "tiny-llama-1.1b"
     config = Config.from_name(model_name) if model_config is None else model_config
     config.attention_impl = attention_impl
-    devices = parse_devices(devices)
+
+    devices = int(os.environ.get("WORLD_SIZE", "1"))
+
     out_dir = init_out_dir(out_dir)
     # in case the dataset requires the Tokenizer
     tokenizer = Tokenizer(tokenizer_dir) if tokenizer_dir is not None else None
@@ -312,6 +314,8 @@ def fit(
 
     current_time = time.time()
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
+    
+    fabric.print(f"train.gradient_accumulation_iters(devices): {train.gradient_accumulation_iters(devices)}, micro_batch_size: {train.micro_batch_size}, global_batch_size: {train.global_batch_size}, devices: {devices}")
 
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
