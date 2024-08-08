@@ -300,7 +300,7 @@ def fit(
     log_iter_interval = train.log_interval * train.gradient_accumulation_iters(total_gpu_world_size)
     log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(total_gpu_world_size) if train.log_stability_interval else None
 
-    state["iter_num"] = state["step_count"] // train.gradient_accumulation_iters(total_gpu_world_size)
+    state["iter_num"] = state["step_count"] * train.gradient_accumulation_iters(total_gpu_world_size)
     # this is a fix to allow restarting from different number of gpu
     # when we reload with more gpu the iter_num is not correct (because it does not take into consideration grad acc) while step count does
     # so we re init the iter_num to the correct value with respect to step count and the number of grad acc (linked direcly to the number of gpu)
