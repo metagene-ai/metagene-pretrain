@@ -299,6 +299,12 @@ def fit(
     max_iters = max_tokens_per_device // tokens_per_iter
     log_iter_interval = train.log_interval * train.gradient_accumulation_iters(total_gpu_world_size)
     log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(total_gpu_world_size) if train.log_stability_interval else None
+
+    state["iter_num"] = state["step_count"] // train.gradient_accumulation_iters(total_gpu_world_size)
+    # this is a fix to allow restarting from different number of gpu
+    # when we reload with more gpu the iter_num is not correct (because it does not take into consideration grad acc) while step count does
+    # so we re init the iter_num to the correct value with respect to step count and the number of grad acc (linked direcly to the number of gpu)
+
     initial_iter = state["iter_num"]
     train_iterator = CycleIterator(train_dataloader)
 
@@ -316,6 +322,8 @@ def fit(
 
     current_time = time.time()
     warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(total_gpu_world_size)
+
+    fabric.print(f"fabric.world_size: {fabric.world_size}, total_gpu_world_size: {total_gpu_world_size}")
     
     fabric.print(f"train.gradient_accumulation_iters(total_gpu_world_size): {train.gradient_accumulation_iters(total_gpu_world_size)}, micro_batch_size: {train.micro_batch_size}, global_batch_size: {train.global_batch_size}, world_size: {fabric.world_size}")
 
