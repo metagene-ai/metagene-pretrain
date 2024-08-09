@@ -292,16 +292,14 @@ def fit(
         fabric.print(f"Measured TFLOPs: {measured_flops * fabric.world_size / 1e12:.2f}")
         del meta_model, x
 
-    total_gpu_world_size = int(os.environ.get("WORLD_SIZE", "1"))
-
     max_tokens_per_device = train.max_tokens // fabric.world_size
     tokens_per_iter = train.micro_batch_size * train.seq_len_data
     max_iters = max_tokens_per_device // tokens_per_iter
-    log_iter_interval = train.log_interval * train.gradient_accumulation_iters(total_gpu_world_size)
-    log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(total_gpu_world_size) if train.log_stability_interval else None
+    log_iter_interval = train.log_interval * train.gradient_accumulation_iters(fabric.world_size)
+    log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(fabric.world_size) if train.log_stability_interval else None
 
 
-    original_iter = state["step_count"] * train.gradient_accumulation_iters(total_gpu_world_size) 
+    original_iter = state["step_count"] * train.gradient_accumulation_iters(fabric.world_size) 
     iter_init = state["iter_num"]
     # original_world_size = int(state["step_count"] / state["iter_num"] * train.global_batch_size / train.micro_batch_size)
 
@@ -313,12 +311,12 @@ def fit(
     initial_iter = state["iter_num"]
     train_iterator = CycleIterator(train_dataloader)
 
-    running_loss = RunningMean(window=train.gradient_accumulation_iters(total_gpu_world_size), sync_on_compute=False).to(
+    running_loss = RunningMean(window=train.gradient_accumulation_iters(fabric.world_size), sync_on_compute=False).to(
         fabric.device
     )
 
     if train.z_loss:
-        running_z_loss = RunningMean(window=train.gradient_accumulation_iters(total_gpu_world_size), sync_on_compute=False).to(
+        running_z_loss = RunningMean(window=train.gradient_accumulation_iters(fabric.world_size), sync_on_compute=False).to(
             fabric.device
         )
     fabric.barrier()
@@ -326,18 +324,18 @@ def fit(
     val_loss = ["n/a"] * len(val_dataloaders)
 
     current_time = time.time()
-    warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(total_gpu_world_size)
+    warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(fabric.world_size)
 
-    fabric.print(f"fabric.world_size: {fabric.world_size}, total_gpu_world_size: {total_gpu_world_size}")
+    fabric.print(f"fabric.world_size: {fabric.world_size}, fabric.world_size: {fabric.world_size}")
     
-    fabric.print(f"train.gradient_accumulation_iters(total_gpu_world_size): {train.gradient_accumulation_iters(total_gpu_world_size)}, micro_batch_size: {train.micro_batch_size}, global_batch_size: {train.global_batch_size}, world_size: {fabric.world_size}")
+    fabric.print(f"train.gradient_accumulation_iters(fabric.world_size): {train.gradient_accumulation_iters(fabric.world_size)}, micro_batch_size: {train.micro_batch_size}, global_batch_size: {train.global_batch_size}, world_size: {fabric.world_size}")
 
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
             break
 
         # determine and set the learning rate for this iteration
-        lr = get_lr(train.learning_rate, state["iter_num"], warmup_iters, max_iters, train.min_lr)
+        lr = get_lr(train.learning_rate, state["iter_num"] - iter_init + original_iter, warmup_iters, max_iters, train.min_lr)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
@@ -345,7 +343,7 @@ def fit(
 
         logging_stability_metrics = train.log_stability_interval is not None and state["iter_num"] % log_activation_interval == 0
         if logging_stability_metrics:
-            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers, gradient_accumulation_steps=train.gradient_accumulation_iters(total_gpu_world_size))
+            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers, gradient_accumulation_steps=train.gradient_accumulation_iters(fabric.world_size))
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()
@@ -360,7 +358,7 @@ def fit(
 
 
         
-        is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(total_gpu_world_size) != 0
+        is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(fabric.world_size) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(input_ids, seqlens=seqlens)
             if train.z_loss:
@@ -369,7 +367,7 @@ def fit(
             else:
                 ce_loss = chunked_cross_entropy(logits, targets)
                 loss = ce_loss
-            fabric.backward(loss / train.gradient_accumulation_iters(total_gpu_world_size))
+            fabric.backward(loss / train.gradient_accumulation_iters(fabric.world_size))
 
         running_loss.update(ce_loss.detach())
         if train.z_loss:
@@ -402,7 +400,6 @@ def fit(
 
 
             total_tokens = original_tokens + (state["iter_num"] - iter_init) * train.micro_batch_size * train.seq_len_data * fabric.world_size
-            fabric.print(f"total_tokens: {total_tokens}, original_tokens: {original_tokens}, state['iter_num']: {state['iter_num']}, iter_init: {iter_init}")
             metrics = {
                 "loss": loss,
                 "iter": state["iter_num"],
