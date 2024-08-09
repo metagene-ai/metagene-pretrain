@@ -313,7 +313,6 @@ def fit(
     fabric.print(f"original_iter: {original_iter}, original_tokens: {original_tokens}")
     fabric.print(f"step_count: {state['step_count']}, iter_num: {state['iter_num']}")
 
-    initial_iter = state["iter_num"]
     train_iterator = CycleIterator(train_dataloader)
 
     running_loss = RunningMean(window=train.gradient_accumulation_iters(fabric.world_size), sync_on_compute=False).to(
@@ -413,7 +412,7 @@ def fit(
                 "epoch": train_iterator.epoch,
                 "iter_time": t1 - iter_t0,
                 "remaining_time": (
-                    (t1 - total_t0) / (state["iter_num"] - initial_iter) * (max_iters - state["iter_num"])
+                    (t1 - total_t0) / (state["iter_num"] - iter_init) * (max_iters - state["iter_num"])
                 ),
                 "tokens": state["iter_num"] * train.micro_batch_size * train.seq_len_data,
                 "total_tokens": total_tokens,
@@ -462,10 +461,10 @@ def fit(
             checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
             fabric.print(f"Saving checkpoint to {str(checkpoint_file)!r}")
             # Use buffer to fix issue with serializing state['train_dataloader']
-            # buffer_train_dataloader = state['train_dataloader']
-            # state['train_dataloader'] = buffer_train_dataloader.state_dict()
+            buffer_train_dataloader = state['train_dataloader']
+            state['train_dataloader'] = buffer_train_dataloader.state_dict()
             fabric.save(checkpoint_file, state)
-            # state['train_dataloader'] = buffer_train_dataloader
+            state['train_dataloader'] = buffer_train_dataloader
             if fabric.global_rank == 0:
                 save_hyperparameters(setup, checkpoint_file.parent)
                 if tokenizer_dir is not None:
