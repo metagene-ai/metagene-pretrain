@@ -299,9 +299,14 @@ def fit(
     log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(fabric.world_size) if train.log_stability_interval else None
 
 
+    #####
+    #  step count is independent of the number of gpu iter num is
+    # we save iter num in the checkpoint. When we load with a different number of gpu the iter num is not accurate anymore
+    # original_iter is the number of iter that is equivalent if the original training was done on the same amount of gpu as currently
+    # each time we use the iter_num (ex learning rate) we need to take it into consideration
+
     original_iter = state["step_count"] * train.gradient_accumulation_iters(fabric.world_size) 
     iter_init = state["iter_num"]
-    # original_world_size = int(state["step_count"] / state["iter_num"] * train.global_batch_size / train.micro_batch_size)
 
     original_tokens = state["step_count"] * train.global_batch_size * train.seq_len_data
 
@@ -335,6 +340,7 @@ def fit(
             break
 
         # determine and set the learning rate for this iteration
+        # here the number of it is adapater to be agnostic to the number of gpu the original checkpoint was train with
         lr = get_lr(train.learning_rate, state["iter_num"] - iter_init + original_iter, warmup_iters, max_iters, train.min_lr)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
