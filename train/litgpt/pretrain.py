@@ -300,10 +300,15 @@ def fit(
     log_iter_interval = train.log_interval * train.gradient_accumulation_iters(total_gpu_world_size)
     log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(total_gpu_world_size) if train.log_stability_interval else None
 
-    state["iter_num"] = state["step_count"] * train.gradient_accumulation_iters(total_gpu_world_size)
-    # this is a fix to allow restarting from different number of gpu
-    # when we reload with more gpu the iter_num is not correct (because it does not take into consideration grad acc) while step count does
-    # so we re init the iter_num to the correct value with respect to step count and the number of grad acc (linked direcly to the number of gpu)
+
+    original_iter = state["step_count"] * train.gradient_accumulation_iters(total_gpu_world_size) 
+    iter_init = state["iter_num"]
+    # original_world_size = int(state["step_count"] / state["iter_num"] * train.global_batch_size / train.micro_batch_size)
+
+    original_tokens = state["step_count"] * train.global_batch_size * train.seq_len_data
+
+    fabric.print(f"original_iter: {original_iter}, original_tokens: {original_tokens}")
+    fabric.print(f"step_count: {state['step_count']}, iter_num: {state['iter_num']}")
 
     initial_iter = state["iter_num"]
     train_iterator = CycleIterator(train_dataloader)
@@ -394,6 +399,10 @@ def fit(
                 samples=(state["iter_num"] * train.micro_batch_size),
                 lengths=(state["iter_num"] * train.micro_batch_size * train.seq_len_data),
             )
+
+
+            total_tokens = original_tokens + (state["iter_num"] - iter_init) * train.micro_batch_size * train.seq_len_data * fabric.world_size
+            fabric.print(f"total_tokens: {total_tokens}, original_tokens: {original_tokens}, state['iter_num']: {state['iter_num']}, iter_init: {iter_init}")
             metrics = {
                 "loss": loss,
                 "iter": state["iter_num"],
@@ -404,7 +413,7 @@ def fit(
                     (t1 - total_t0) / (state["iter_num"] - initial_iter) * (max_iters - state["iter_num"])
                 ),
                 "tokens": state["iter_num"] * train.micro_batch_size * train.seq_len_data,
-                "total_tokens": (state["iter_num"] * train.micro_batch_size * train.seq_len_data * fabric.world_size),
+                "total_tokens": total_tokens,
                 "learning_rate": lr,
                 "tokens_per_second": train.seq_len_data * train.global_batch_size / (time.time() - current_time),
             }
@@ -450,10 +459,10 @@ def fit(
             checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
             fabric.print(f"Saving checkpoint to {str(checkpoint_file)!r}")
             # Use buffer to fix issue with serializing state['train_dataloader']
-            buffer_train_dataloader = state['train_dataloader']
-            state['train_dataloader'] = buffer_train_dataloader.state_dict()
+            # buffer_train_dataloader = state['train_dataloader']
+            # state['train_dataloader'] = buffer_train_dataloader.state_dict()
             fabric.save(checkpoint_file, state)
-            state['train_dataloader'] = buffer_train_dataloader
+            # state['train_dataloader'] = buffer_train_dataloader
             if fabric.global_rank == 0:
                 save_hyperparameters(setup, checkpoint_file.parent)
                 if tokenizer_dir is not None:
