@@ -117,7 +117,7 @@ def setup(
         model_name = "tiny-llama-1.1b"
     config = Config.from_name(model_name) if model_config is None else model_config
     config.attention_impl = attention_impl
-    devices = parse_devices(devices)
+
     out_dir = init_out_dir(out_dir)
     # in case the dataset requires the Tokenizer
     tokenizer = Tokenizer(tokenizer_dir) if tokenizer_dir is not None else None
@@ -125,6 +125,8 @@ def setup(
     logger = choose_logger(
         logger_name, out_dir, name=f"pretrain-{config.name}", log_interval=train.log_interval
     )
+
+    devices = parse_devices(devices)
 
     if devices > 1:
         mixed_precision = MixedPrecision(param_dtype=torch.bfloat16)
@@ -293,17 +295,32 @@ def fit(
     max_tokens_per_device = train.max_tokens // fabric.world_size
     tokens_per_iter = train.micro_batch_size * train.seq_len_data
     max_iters = max_tokens_per_device // tokens_per_iter
-    log_iter_interval = train.log_interval * train.gradient_accumulation_iters(devices)
-    log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(devices) if train.log_stability_interval else None
-    initial_iter = state["iter_num"]
+    log_iter_interval = train.log_interval * train.gradient_accumulation_iters(fabric.world_size)
+    log_activation_interval = train.log_stability_interval * train.gradient_accumulation_iters(fabric.world_size) if train.log_stability_interval else None
+
+
+    #####
+    #  step count is independent of the number of gpu iter num is
+    # we save iter num in the checkpoint. When we load with a different number of gpu the iter num is not accurate anymore
+    # original_iter is the number of iter that is equivalent if the original training was done on the same amount of gpu as currently
+    # each time we use the iter_num (ex learning rate) we need to take it into consideration
+
+    original_iter = state["step_count"] * train.gradient_accumulation_iters(fabric.world_size) 
+    iter_init = state["iter_num"]
+
+    original_tokens = state["step_count"] * train.global_batch_size * train.seq_len_data
+
+    fabric.print(f"original_iter: {original_iter}, original_tokens: {original_tokens}")
+    fabric.print(f"step_count: {state['step_count']}, iter_num: {state['iter_num']}")
+
     train_iterator = CycleIterator(train_dataloader)
 
-    running_loss = RunningMean(window=train.gradient_accumulation_iters(devices), sync_on_compute=False).to(
+    running_loss = RunningMean(window=train.gradient_accumulation_iters(fabric.world_size), sync_on_compute=False).to(
         fabric.device
     )
 
     if train.z_loss:
-        running_z_loss = RunningMean(window=train.gradient_accumulation_iters(devices), sync_on_compute=False).to(
+        running_z_loss = RunningMean(window=train.gradient_accumulation_iters(fabric.world_size), sync_on_compute=False).to(
             fabric.device
         )
     fabric.barrier()
@@ -311,14 +328,19 @@ def fit(
     val_loss = ["n/a"] * len(val_dataloaders)
 
     current_time = time.time()
-    warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(devices)
+    warmup_iters = train.lr_warmup_steps * train.gradient_accumulation_iters(fabric.world_size)
+
+    fabric.print(f"fabric.world_size: {fabric.world_size}, fabric.world_size: {fabric.world_size}")
+    
+    fabric.print(f"train.gradient_accumulation_iters(fabric.world_size): {train.gradient_accumulation_iters(fabric.world_size)}, micro_batch_size: {train.micro_batch_size}, global_batch_size: {train.global_batch_size}, world_size: {fabric.world_size}")
 
     for train_data in train_iterator:
         if state["iter_num"] >= max_iters:
             break
 
         # determine and set the learning rate for this iteration
-        lr = get_lr(train.learning_rate, state["iter_num"], warmup_iters, max_iters, train.min_lr)
+        # here the number of it is adapater to be agnostic to the number of gpu the original checkpoint was train with
+        lr = get_lr(train.learning_rate, state["iter_num"] - iter_init + original_iter, warmup_iters, max_iters, train.min_lr)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
@@ -326,7 +348,7 @@ def fit(
 
         logging_stability_metrics = train.log_stability_interval is not None and state["iter_num"] % log_activation_interval == 0
         if logging_stability_metrics:
-            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers, gradient_accumulation_steps=train.gradient_accumulation_iters(devices))
+            activation_monitor = ActivationNormMetric(target_layers=train.stability_target_layers, gradient_accumulation_steps=train.gradient_accumulation_iters(fabric.world_size))
             activation_monitor.register_metrics_hooks(model)
 
         iter_t0 = time.perf_counter()
@@ -341,7 +363,7 @@ def fit(
 
 
         
-        is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(devices) != 0
+        is_accumulating = state["iter_num"] % train.gradient_accumulation_iters(fabric.world_size) != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(input_ids, seqlens=seqlens)
             if train.z_loss:
@@ -350,7 +372,7 @@ def fit(
             else:
                 ce_loss = chunked_cross_entropy(logits, targets)
                 loss = ce_loss
-            fabric.backward(loss / train.gradient_accumulation_iters(devices))
+            fabric.backward(loss / train.gradient_accumulation_iters(fabric.world_size))
 
         running_loss.update(ce_loss.detach())
         if train.z_loss:
@@ -380,6 +402,9 @@ def fit(
                 samples=(state["iter_num"] * train.micro_batch_size),
                 lengths=(state["iter_num"] * train.micro_batch_size * train.seq_len_data),
             )
+
+
+            total_tokens = original_tokens + (state["iter_num"] - iter_init) * train.micro_batch_size * train.seq_len_data * fabric.world_size
             metrics = {
                 "loss": loss,
                 "iter": state["iter_num"],
@@ -387,10 +412,10 @@ def fit(
                 "epoch": train_iterator.epoch,
                 "iter_time": t1 - iter_t0,
                 "remaining_time": (
-                    (t1 - total_t0) / (state["iter_num"] - initial_iter) * (max_iters - state["iter_num"])
+                    (t1 - total_t0) / (state["iter_num"] - iter_init) * (max_iters - state["iter_num"])
                 ),
                 "tokens": state["iter_num"] * train.micro_batch_size * train.seq_len_data,
-                "total_tokens": (state["iter_num"] * train.micro_batch_size * train.seq_len_data * fabric.world_size),
+                "total_tokens": total_tokens,
                 "learning_rate": lr,
                 "tokens_per_second": train.seq_len_data * train.global_batch_size / (time.time() - current_time),
             }
