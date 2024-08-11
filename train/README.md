@@ -5,20 +5,28 @@ This directory contains code for (pre-)training of the metagenomic foundation mo
 Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the LitGPT README
 [here](README-litgpt.md).
 
-## S3 Scripts
+## Switching to next pretraining data chunk and resuming training
 
-### (1) Selecting or modifying the `index.json` file for pretraining data
+When we need to transfer from one data chunk to another, we need to do two steps:
+(1) Update the `index.json` file on S3 to the index file for the next chunk, (2) run
+training, resuming from final checkpoint, with an additional flag.
 
-See [scripts/select_training_index_file.sh](scripts/select_training_index_file.sh). We
-will need to update this script and then run:
+**First**, to update the `index.json` file on S3, update or uncomment lines in
+[scripts/select_training_index_file.sh](scripts/select_training_index_file.sh) to point
+to the correct data chunk, and then run:
 ```bash
 source scripts/select_training_index_file.sh
 ```
 
-Note: after we run this script to modify the index.json file on S3, we will need to resume
-training with both `--resume <path>` and ``--new_index_file True`` flags.
+**Second**, to resume training on this new data chunk, run the usual pretraining run
+command along with the two flags: `--resume <path>` and ``--new_index_file True``.
 
-### (2) Uploading checkpoints to S3 bucket
+Note: using both of these flags is only needed for the "first resume" after switching to
+a new index file. If the job needs to be resumed again (from a later checkpoint) before
+we've made it to the next index file, we should only use the flag `--resume <path>`
+pointing to the later checkpoint.
+
+## Uploading checkpoints to S3 bucket
 See [scripts/upload_checkpoints_to_s3.sh](scripts/upload_checkpoints_to_s3.sh) for
 details.
 
