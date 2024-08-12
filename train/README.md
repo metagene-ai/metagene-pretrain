@@ -7,8 +7,8 @@ Our code is based on [LitGPT](https://github.com/Lightning-AI/litgpt). See the L
 
 ## Switching to next pretraining data chunk and resuming training
 
-When we need to transfer from one data chunk to another, we need to do two steps:
-(1) Update the `index.json` file on S3 to the index file for the next chunk, (2) run
+When we need to transfer from one data chunk to another, we need to do three steps:
+(1) Update the `index.json` file on S3 to the index file for the next chunk, (2) clear the streaming cache  (3) run
 training, resuming from final checkpoint, with an additional flag.
 
 **First**, to update the `index.json` file on S3, update or uncomment lines in
@@ -17,8 +17,11 @@ to the correct data chunk, and then run:
 ```bash
 source scripts/select_training_index_file.sh
 ```
-
-**Second**, to resume training on this new data chunk, run the usual pretraining run
+**Second**, to clear the streaming cache, run:
+```bash
+rm -rf /tmp/mds-cache
+```
+**Third**, to resume training on this new data chunk, run the usual pretraining run
 command along with the two flags: `--resume <path>` and ``--new_index_file True``.
 
 Note: using both of these flags is only needed for the "first resume" after switching to
