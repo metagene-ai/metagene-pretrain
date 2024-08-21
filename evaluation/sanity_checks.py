@@ -9,7 +9,7 @@ from litgpt import LLM
 from litgpt.utils import chunked_cross_entropy
 
 # TO USE THIS SCRIPT, PLEASE CHANGE THE FOLLOWING DIRECTORIES
-DATASET_DIR = 'dataset/cleaned_tokens_2000000000.txt'
+DATASET_DIR = '../../mgfm_sanity_check/dataset/cleaned_tokens_2000000000.txt'
 CKPT_DIR = '/Users/oliverliu/mgfm_ckpt'
 
 CTX_LEN = 12 # Context Length
@@ -52,7 +52,7 @@ print('Most Common Start Token IDs:', Counter(start_token_ids).most_common(5))
 
 print('START: "Validation" loss calculation')
 batch = dataset[:B]
-input_ids = tokenizer_hf(batch, return_tensors='pt', padding=True).input_ids
+input_ids = tokenizer_hf(batch, return_tensors='pt', padding=True).input_ids[:,1:]
 input_ids = input_ids.to(llm.model.device)
 logits = llm.model(input_ids)
 target_ids = input_ids.clone()
