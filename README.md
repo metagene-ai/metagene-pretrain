@@ -1,42 +1,25 @@
-# Metagenomic Foundation Model for Pandemic Monitoring
+# METAGENE-1: Metagenomic Foundation Model for Pandemic Monitoring
 
-## Overview
+This repository contains pretraining code for METAGENE-1.
 
-We are a team of researchers from USC Computer Science, collaborating with the Nucleic
-Acid Observatory (NAO) to pre-train an autoregressive foundation model on metagenomic
-sequencing data, given large quantities of reads collected from human wastewater samples
-using massively parallel sequencing. This model will be used for embedding, matching,
-search, and anomaly detection, with the goal of supporting online pandemic and pathogen
-monitoring.
+## Introduction
 
-## Goals and Status
+METAGENE-1 is a 7-billion-parameter autoregressive transformer language model, which we
+refer to as a metagenomic foundation model, pretrained on a novel corpus of diverse
+metagenomic DNA and RNA reads sequenced from wastewater.
 
-**Goal**: Our goal is to train a ~7B parameter metagenomic sequence model following
-similar implementation, data scale, and techniques as modern LLMs.
+This repository contains code for pretraining METAGENE-1. It aims to provide a reference
+for future pretraining efforts. Note that the metagenomic pretraining dataset is not yet
+public (see [data details](#data-details) below). However, this repository will be
+updated in the future as the metagenomic data is publically released.
 
-**Status**: We have so far been given ~2T+ tokens of real metagenomic sequence data (see
-[data details](#data-details)), collected by multiple groups over different dates and
-locations.
-- We've trained a 200M parameter and 800M parameter model on a small subset of data
-  using single-character (base-pair) tokenization.
-- Ran evaluation on perplexity of held-out data, and on human-infecting virus subset.
-- Did small study on overfitting on multiple epochs through a chunk of the data.
-- Explored other tokenization schemes (k-mer, codons, BPE, etc).
-- Trained a byte-pair encoding (BPE) tokenizer on uniformly sampled reads from full data
-  (see [details](#byte-pair-encoding-bpe-tokenization)).
-- Trained an 800M parameter model on a small subset of data using BPE tokenization.
-
-**Next Steps**: Finish final BPE tokenizer. Tokenize all/portion of data. Train 7B
-parameter model on data.
+> [!NOTE]  
+> This repository is still being cleaned for release, but is provided as a helpful
+> reference in the meantime.
 
 ## Quick Tour
 
-- [`tokenize/`](tokenize/): byte-pair encoding (BPE) tokenization of genomic data.
-    - [`gather_data.py`](tokenize/gather_data.py): uniformly sample sequence reads for
-      BPE tokenization.
-    - [`run.py`](tokenize/run.py): run BPE tokenization on sampled sequence reads.
-<br/><br/>
-- [`train/`](train/): training of the metagenomic foundation model (MGFM).
+- [`train`](train/): pretraining code for METAGENE-1.
     - Data
         - [`download.py`](train/download.py): download data files from S3 bucket.
         - [`base.py`](train/litgpt/data/base.py): containing dataset class, NAODataset.
@@ -46,15 +29,13 @@ parameter model on data.
         - [`genomicsllama.yml`](train/config_hub/pretrain/genomicsllama.yml): pretrain
           configuration for genomics-llama.
         - [`config`](train/litgpt/config.py): model configuration for genomics_llama.
-    - Tokenize
-        - [`tokenizer.py`](train/litgpt/tokenizer.py): incorporate sequence tokenizer.
     - Train
         - [`pretrain.py`](train/litgpt/pretrain.py): pretraining model, e.g., initialize
           weights, setup optimizers, setup dataloaders, setup fabric, run training.
 
-## Run Training
+## Installation
 
-**Install dependencies**
+To install dependencies, run:
 
 ```bash
 cd train
@@ -63,17 +44,11 @@ pip install -e '.[all]'
 pip install -r minbpe/requirements.txt
 ```
 
-**Download sample data**
+## Pretraining 
 
-Download a sample of the [wastewater sequence data (1.9 GB)
-here](https://drive.google.com/file/d/1hbq0BTS0zbVS8Y708NE4_O21TmRuIM8B/view?usp=drive_link).
-
-**Train model**
-
-Update [line
-31](https://github.com/MetagenomicFM/MetagenomicFM/blob/fce959b305d2c2e6b46a36b1ec1ca450183990b7/train/litgpt/data/nao.py#L31)
-in `train/litgpt/data/nao.py` to point to the directory containing the downloaded data.
-*Note: this directory should contain only the training data, saved as .txt files*.
+Before running pretraining, you will need to update lines in `train/litgpt/data/nao.py`
+to point to an s3 bucket containing tokenized metagenomic data files in MosaicML
+streaming format.
 
 And then run:
 ```bash
@@ -83,46 +58,22 @@ python litgpt/pretrain.py --config config_hub/pretrain/genomicsllama.yml
 
 ## Data Details
 
-Sequence read data files and approximate numbers of base pairs are listed below (see the
-[full list here](data_files.md)).
-```
-    JR-2024-04-12-nR345P1-L001.collapsed.gz, 40529468973
-    JR-2024-04-12-nR345P1-L002.collapsed.gz, 41918174226
-    JR-2024-04-12-nR345P1-L003.collapsed.gz, 40823507762
-    JR-2024-04-12-nR345P1-L004.collapsed.gz, 41417854382
-    JR-2024-04-12-nR345P2-L001.collapsed.gz, 30588984812
-    JR-2024-04-12-nR345P2-L002.collapsed.gz, 31358323741
-    ...
-    ...     [77 total JR files]
-    ...
-    JR-2024-04-16-nR347G1-P001-L001.collapsed.gz, 26301966946
-    JR-2024-04-16-nR347G1-P001-L002.collapsed.gz, 33376000921
-    JR-2024-04-16-nR347G1-P002-L001.collapsed.gz, 24448009107
-    JR-2024-04-16-nR347G1-P002-L002.collapsed.gz, 31237213961
-    JR-2024-04-16-nR347G1-P003-L001.collapsed.gz, 36639747078
-    JR-2024-04-16-nR347G1-P003-L002.collapsed.gz, 31556261984
-    ·························································
-    MJ-2023-12-20-44_24mo_11-21_S4.collapsed.gz, 6424183105
-    MJ-2023-12-20-44x10_11-28_S6.collapsed.gz, 9235324835
-    MJ-2023-12-20-Ase_11-17_S5.collapsed.gz, 8276253671
-    MJ-2023-12-20-CUBE_S3.collapsed.gz, 873402915
-    MJ-2023-12-20-WFP_S2.collapsed.gz, 1095931874
-    MJ-2024-02-08-44_10x_12_5_reextr_S1.collapsed.gz, 53131314
-    ...
-    ...     [183 total MJ files]
-    ...
-    MJ-2024-05-17-44_ActiveCarbon_4-9_S5_L002.collapsed.gz, 43245721732
-    MJ-2024-05-17-44_ActiveCarbon_4-9_S5_L003.collapsed.gz, 42920374381
-    MJ-2024-05-17-44_ActiveCarbon_4-9_S5_L004.collapsed.gz, 43042590794
-    MJ-2024-05-17-44_Torpedo_4-9_S6_L001.collapsed.gz, 37530903387
-    MJ-2024-05-17-44_Torpedo_4-9_S6_L002.collapsed.gz, 37582887195
-    MJ-2024-05-17-44_Torpedo_4-9_S6_L003.collapsed.gz, 37453956571
-```
+METAGENE-1 is trained on a newly collected metagenomic dataset comprising material from
+a very broad range (e.g., tens of thousands) of organisms, which was collected via
+metagenomic sequencing of human wastewater (i.e., municipal influent). This approach
+contrasts with prior genomic sequence models, which often focus on curated collections
+of specific species or genomic types.
+
+In this implementation, data for pretraining is streamed from a given s3 bucket using
+MosaicML's [streaming](https://github.com/mosaicml/streaming) package.
+
+> [!NOTE]  
+> Add note about data availability.
 
 ## Byte-pair Encoding (BPE) Tokenization
 
-We trained a BPE tokenizer on ~150M sequence reads sampled uniformly at random from our
-full set of data files.  Some examples from our vocabulary (e.g., size 4096) are listed
+We trained a BPE tokenizer on ~150M sequence reads (2B base pairs) sampled uniformly at
+random from our full set of data files.  Some examples from our vocabulary are listed
 below.
 
 A few short tokens:
