@@ -1,76 +1,43 @@
-# Load Dataset
-import random
-from collections import Counter
 from tqdm import tqdm
 
 import torch
-from transformers import PreTrainedTokenizerFast
+from transformers import AutoTokenizer
+
 from litgpt import LLM
 from litgpt.utils import chunked_cross_entropy
 
 # TO USE THIS SCRIPT, PLEASE CHANGE THE FOLLOWING DIRECTORIES
-DATASET_DIR = "../../mgfm_sanity_check/dataset/cleaned_tokens_2000000000.txt"
-CKPT_DIR = "/Users/oliverliu/mgfm_ckpt"
+DATASET_DIR = "data/sample_reads.csv"
+CKPT_DIR = "PATH/TO/CKPT"
 
-N = 1000  # Dataset Size
-B = 32  # Batch Size
 CTX_LEN = 12  # Context Length
 GEN_LEN = 20  # Generation Length
 
 print("START: Loading Dataset")
-random.seed(42)
-
-dataset = []
-with open(DATASET_DIR, "r") as f:
-    i = 0
-    for line in f:
-        dataset.append("_" + line.strip())
-        i += 1
-        if i == 100000:
-            break
+dataset = [line.strip() for line in open(DATASET_DIR, "r")]
 print("SUCCESS: Dataset Loaded:")
-random.shuffle(dataset)
-dataset = dataset[:N]
 for seq in dataset[:5]:
-    print(seq)
+    print("\t", seq)
 
-print("START: Tokenizer Consistency Check")
-tokenizer_hf = PreTrainedTokenizerFast.from_pretrained(CKPT_DIR)
-tokenizer_hf.pad_token = "[PAD]"
-tokenizer_hf.pad_token_id = 0
-
-# Load lit model
+B = len(dataset)
+tokenizer = AutoTokenizer.from_pretrained("metagene-ai/METAGENE-1")
 llm = LLM.load(CKPT_DIR)
-start_token_ids = []
-for i in range(len(dataset)):
-    litgpt_token_ids = llm.preprocessor.encode(dataset[i]).tolist()
-    hf_token_ids = (
-        tokenizer_hf.encode(dataset[i], return_tensors="pt").squeeze().tolist()
-    )
-    assert (
-        litgpt_token_ids == hf_token_ids
-    ), f"ERROR: Tokenizers are different at index {i}"
-    start_token_ids.append(litgpt_token_ids[1])
-print("SUCCESS: Tokenizers are the same")
-most_common_start_token_ids = Counter(start_token_ids).most_common(5)
-print("Most Common Start Token IDs:")
-for token_id, count in most_common_start_token_ids:
-    print(tokenizer_hf.decode([token_id]), count)
 
 print('\n\n\nSTART: "Validation" loss calculation')
-batch = dataset[:B]
-input_ids = tokenizer_hf(batch, return_tensors="pt", padding=True).input_ids[:, 1:]
+input_ids = tokenizer(
+    dataset, return_tensors="pt", padding=True, add_special_tokens=False
+).input_ids
 input_ids = input_ids.to(llm.model.device)
 logits = llm.model(input_ids)
 target_ids = input_ids.clone()
-# set -100 to padding tokens
-target_ids[target_ids == 0] = -100
+target_ids[target_ids == tokenizer.pad_token_id] = -100
 loss = chunked_cross_entropy(logits[..., :-1, :], target_ids[..., 1:])
-print("Validation Loss:", loss.item())
+print("SUCCESS: Validation Loss:", loss.item())
 
 # Test Generation
 print("\n\n\nSTART: Generation+Ranking Test")
 all_ranks = []
+
 for sample_idx in range(0, B):
     ctx = input_ids[sample_idx : sample_idx + 1, :CTX_LEN].to(llm.model.device)
     ranks = []
@@ -87,7 +54,7 @@ for sample_idx in range(0, B):
             .index(ground_truth_token_id)
         )
         if rank > 500:
-            print("Ground Truth Token:", tokenizer_hf.decode([ground_truth_token_id]))
+            print("Ground Truth Token:", tokenizer.decode([ground_truth_token_id]))
         ranks.append(rank)
         # Use ground truth token to update context
         ctx = torch.cat(
@@ -110,5 +77,4 @@ with open("all_ranks.txt", "w") as f:
 
 rank_avgs = [sum(ranks) / len(ranks) for ranks in all_ranks]
 avg_rank = sum(rank_avgs) / len(rank_avgs)
-print("Average Rank:", avg_rank)
-print("Rank Averages:", rank_avgs)
+print("Average Rank:", round(avg_rank, 2))
