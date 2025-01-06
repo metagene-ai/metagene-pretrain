@@ -1,6 +1,6 @@
-# METAGENE-1: Metagenomic Foundation Model for Pandemic Monitoring
+# METAGENE-1 Pretraining
 
-This repository contains pretraining code for METAGENE-1.
+This repository contains code for pretraining METAGENE-1: Metagenomic Foundation Model.
 
 ## Introduction
 
@@ -14,14 +14,13 @@ public (see [data details](#data-details) below). However, this repository will 
 updated in the future as the metagenomic data is publically released.
 
 > [!NOTE]  
-> This repository is still being cleaned for release, but is provided as a helpful
+> This repository is still being organized for release, but is provided as a helpful
 > reference in the meantime.
 
 ## Quick Tour
 
 - [`train`](train/): pretraining code for METAGENE-1.
     - Data
-        - [`download.py`](train/download.py): download data files from S3 bucket.
         - [`base.py`](train/litgpt/data/base.py): containing dataset class, NAODataset.
         - [`nao.py`](train/litgpt/data/nao.py): containing NAO (DataModule) class, with
           train/val dataloaders.
@@ -56,6 +55,14 @@ cd train
 python litgpt/pretrain.py --config config_hub/pretrain/genomicsllama.yml
 ```
 
+Or, as an example with more configurations shown:
+```bash
+cd train
+python litgpt/pretrain.py --config config_hub/pretrain/genomicsllama.yml --fsdp_strategy
+_HYBRID_SHARD_ZERO2 --model_name genomics-llama-7b --attention_impl fa --fake_data False
+--train.log_stability_interval 25 --eval.interval 25 --train.save_interval 500
+```
+
 ## Data Details
 
 METAGENE-1 is trained on a newly collected metagenomic dataset comprising material from
@@ -65,10 +72,15 @@ contrasts with prior genomic sequence models, which often focus on curated colle
 of specific species or genomic types.
 
 In this implementation, data for pretraining is streamed from a given s3 bucket using
-MosaicML's [streaming](https://github.com/mosaicml/streaming) package.
+MosaicML's [streaming](https://github.com/mosaicml/streaming) package. If you want to
+use this code as-is, you will need to specify an s3 bucket containing MosaicML
+streaming-compatible data [here](train/litgpt/data/nao.py#L196) and
+[here](train/litgpt/data/nao.py#L201).
 
 > [!NOTE]  
-> Add note about data availability.
+> The metagenomic pretraining dataset is not yet available for public release, but will
+> be publicly available in the coming months. When it is available, we will update this
+> section of the README with details.
 
 ## Byte-pair Encoding (BPE) Tokenization
 

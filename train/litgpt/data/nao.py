@@ -164,11 +164,6 @@ class NAO(DataModule):
 
     local_cache: Path = Path("/tmp/mds-cache/")
 
-    # data_path: Union[str, Path] = Path("data/")
-    # """The path to the data directory, containing two folders 'slimpajama' and 'starcoder'
-    # which are the output of the preprocessing step done in advance. See the `tutorial/pretrain_tinyllama.md`
-    # for instructions. The path can also be a remote path (e.g., s3://)."""
-
     tokenizer: Optional[Tokenizer] = field(default=None, init=False, repr=False)
     batch_size: int = field(default=1, init=False, repr=False)
     deduplication: bool = True
@@ -198,12 +193,12 @@ class NAO(DataModule):
             streaming.base.util.clean_stale_shared_memory()
 
             all_stream = Stream(
-                remote = f"s3://mgfm-bucket-01/streams",
+                remote = # ADD S3 BUCKET PATH HERE,
                 local = f"/tmp/mds-cache/train",
                 repeat = 1,
             )
             val_stream = Stream(
-                remote = f"s3://mgfm-bucket-01/streams/stream_MJ-2024-04-04-44_2-27_S5_L002.collapsed.gz_small",
+                remote = # ADD S3 BUCKET PATH HERE,
                 local = f"/tmp/mds-cache/val",
                 repeat = 1,
             )

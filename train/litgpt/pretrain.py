@@ -41,14 +41,6 @@ from litgpt.loss import cross_entropy_max_z_loss
 from torch.distributed.fsdp import  MixedPrecision
 
 
-# Sanity check code
-# TODO: eventually remove this
-# import torch._dynamo
-# torch._dynamo.config.suppress_errors = True
-
-# TODO: may set chunked_cross_entropy with chunk_size=0
-
-
 def setup(
     model_name: Optional[str] = None,
     model_config: Optional[Config] = None,
