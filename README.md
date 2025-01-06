@@ -57,6 +57,7 @@ python litgpt/pretrain.py --config config_hub/pretrain/genomicsllama.yml
 
 Or, as an example with more configurations shown:
 ```bash
+cd train
 python litgpt/pretrain.py --config config_hub/pretrain/genomicsllama.yml --fsdp_strategy
 _HYBRID_SHARD_ZERO2 --model_name genomics-llama-7b --attention_impl fa --fake_data False
 --train.log_stability_interval 25 --eval.interval 25 --train.save_interval 500
