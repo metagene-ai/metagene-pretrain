@@ -1,4 +1,4 @@
-# METAGENE-1 - Pretraining
+# METAGENE-1 Pretraining
 
 This repository contains code for pretraining METAGENE-1: Metagenomic Foundation Model.
 
