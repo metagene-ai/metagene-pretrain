@@ -17,7 +17,7 @@ LitGPT supports a variety of LLM architectures with publicly available weights. 
 | Nous-Hermes by NousResearch                  | 7B, 13B, 70B                             | [Org page](https://huggingface.co/NousResearch)                                                                              |
 | OpenLLaMA by OpenLM Research                 | 3B, 7B, 13B                              | [Geng & Liu 2023](https://github.com/openlm-research/open_llama)                                                             |
 | Phi by Microsoft Research                    | 1.3B, 2.7B                               | [Li et al. 2023](https://arxiv.org/abs/2309.05463)                                                                           |
-| Platypus by Lee at el.                       | 7B, 13B, 70B                             | [Lee, Hunter, and Ruiz 2023](https://arxiv.org/abs/2308.07317)                                                               |
+| Platypus by Lee et al.                       | 7B, 13B, 70B                             | [Lee, Hunter, and Ruiz 2023](https://arxiv.org/abs/2308.07317)                                                               |
 | Pythia by EleutherAI                         | {14,31,70,160,410}M, {1,1.4,2.8,6.9,12}B | [Biderman et al. 2023](https://arxiv.org/abs/2304.01373)                                                                     |
 | RedPajama-INCITE by Together                 | 3B, 7B                                   | [Together 2023](https://together.ai/blog/redpajama-models-v1)                                                                |
 | StableCode by Stability AI                   | 3B                                       | [Stability AI 2023](https://stability.ai/blog/stablecode-llm-generative-ai-coding)                                           |
@@ -224,7 +224,7 @@ litgpt download \
 &nbsp;
 ## Finetunes and other model variants
 
-Sometimes you want to download the weights of a finetune of one of the models listed above. To do this, you need to manually specifiy the `model_name` associated to the config to use. For example:
+Sometimes you want to download the weights of a finetune of one of the models listed above. To do this, you need to manually specify the `model_name` associated to the config to use. For example:
 
 ```bash
 litgpt download \
