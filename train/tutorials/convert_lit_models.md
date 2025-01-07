@@ -2,7 +2,7 @@
 
 LitGPT weights need to be converted to a format that Hugging Face understands with a [conversion script](../litgpt/scripts/convert_lit_checkpoint.py) before our scripts can run.
 
-We provide a helpful script to convert models LitGPT models back to their equivalent Hugging Face Transformers format:
+We provide a helpful script to convert LitGPT models back to their equivalent Hugging Face Transformers format:
 
 ```sh
 litgpt convert from_litgpt \
