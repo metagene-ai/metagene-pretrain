@@ -62,6 +62,6 @@ For LoRA-finetuned models, you need to first merge the LoRA weights with the ori
       --save_filepath "results.json"
   ```
 
-* **Is Truthful MC is not available in lm-eval?**
+* **Is Truthful MC not available in lm-eval?**
 
   It is available as `truthfulqa_mc`.
