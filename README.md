@@ -11,7 +11,7 @@ metagenomic DNA and RNA reads sequenced from wastewater.
 This repository contains code for pretraining METAGENE-1. It aims to provide a reference
 for future pretraining efforts. Note that the metagenomic pretraining dataset is not yet
 public (see [data details](#data-details) below). However, this repository will be
-updated in the future as the metagenomic data is publically released.
+updated in the future as the metagenomic data is publicly released.
 
 > [!NOTE]  
 > This repository is still being organized for release, but is provided as a helpful
